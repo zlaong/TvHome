@@ -68,12 +68,14 @@ object Tv {
 
     /**
      * 焦点放大、描边、圆点：遥控器连按时动画会被打断，弹簧动画能接着当前速度改目标，
-     * 补间动画会从 0 速度重新起步，连按时一顿一顿的。不回弹（阻尼 1）。
+     * 补间动画会从 0 速度重新起步，连按时一顿一顿的。
+     * 阻尼大于 1：起步力度由刚度决定，阻尼加大只拉长收尾的减速段，不回弹。
+     * 第 1 帧约 24%，到位约 255ms。
      */
-    fun <T> focus() = spring<T>(dampingRatio = 1f, stiffness = 2500f)
+    fun <T> focus() = spring<T>(dampingRatio = 1.6f, stiffness = 5000f)
 
-    /** 卡片翻页、列表跟随焦点滚动：位移大，比焦点稍慢 */
-    fun <T> move() = spring<T>(dampingRatio = 1f, stiffness = 800f)
+    /** 卡片翻页、列表跟随焦点滚动：位移大，比焦点稍慢。第 1 帧约 11%，到位约 335ms */
+    fun <T> move() = spring<T>(dampingRatio = 1.5f, stiffness = 1400f)
     /** 抽屉开合、全屏页淡入 */
     const val MOVE = 340
 }
