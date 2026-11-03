@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>投到电视</title>
+<style>
+  :root { --bg:#0b0f18; --card:#151b27; --line:#263044; --text:#eef2f8; --dim:#8a96ab; --accent:#4f9dff; --bad:#ff6b6b; --ok:#4ade80; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 -apple-system, "PingFang SC", sans-serif; }
+  main { max-width:520px; margin:0 auto; padding:calc(28px + env(safe-area-inset-top)) 20px calc(40px + env(safe-area-inset-bottom)); }
+  h1 { font-size:26px; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 24px; font-size:14px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:22px; margin-bottom:16px; }
+  .hidden { display:none !important; }
+  button, .pick { display:block; width:100%; padding:16px; border-radius:14px; border:1px solid var(--line); background:#1f2737; color:var(--text); font-size:17px; text-align:center; cursor:pointer; }
+  .pick, button.primary { background:var(--accent); border-color:var(--accent); color:#06101e; font-weight:600; }
+  .pick { padding:22px; font-size:19px; }
+  button:disabled { opacity:.5; }
+  .row { display:flex; gap:10px; margin-top:12px; }
+  .row button { flex:1; }
+  .msg { font-size:14px; margin-top:12px; min-height:1.4em; }
+  .msg.bad { color:var(--bad); } .msg.ok { color:var(--ok); }
+  .pair input { width:100%; font-size:30px; letter-spacing:10px; text-align:center; padding:12px; border-radius:12px; border:1px solid var(--line); background:#0e131d; color:var(--text); }
+  .bar { height:8px; background:#0e131d; border-radius:4px; overflow:hidden; margin-top:14px; }
+  .bar div { height:100%; width:0; background:var(--accent); transition:width .2s; }
+  .name { font-size:14px; color:var(--dim); word-break:break-all; }
+  .tip { font-size:13px; color:var(--dim); margin-top:14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>投到电视</h1>
+  <p class="sub">选几张照片或一段视频，电视会自动全屏播放。</p>
+
+  <section id="pairBox" class="pair hidden">
+    <p style="margin-top:0">输入电视屏幕上的 6 位配对码</p>
+    <input id="code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+    <div class="row"><button id="pairBtn" class="primary">配对</button></div>
+    <div id="pairMsg" class="msg"></div>
+  </section>
+
+  <div id="castBox" class="hidden">
+    <section>
+      <label class="pick" for="file">选择照片或视频</label>
+      <input id="file" type="file" accept="image/*,video/*" multiple class="hidden">
+      <div id="sendBox" class="hidden">
+        <div id="fname" class="name" style="margin-top:14px"></div>
+        <div class="bar"><div id="prog"></div></div>
+      </div>
+      <div id="sendMsg" class="msg"></div>
+    </section>
+
+    <section id="ctrlBox" class="hidden">
+      <div id="videoCtrl" class="row" style="margin-top:0">
+        <button id="pauseBtn">暂停</button>
+        <button id="playBtn">继续</button>
+      </div>
+      <div id="photoCtrl" class="row" style="margin-top:0">
+        <button id="prevBtn">上一张</button>
+        <button id="nextBtn">下一张</button>
+      </div>
+      <div class="row"><button id="stopBtn">停止投屏</button></div>
+    </section>
+
+    <p class="tip">小提示：把这个页面「添加到主屏幕」，下次一点就能投。视频越长传得越久，1 分钟的 4K 视频大约要 10~30 秒。</p>
+  </div>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const msg = (el, text, cls) => { el.textContent = text || ""; el.className = "msg" + (cls ? " " + cls : ""); };
+  let xhr = null;
+
+  async function api(path, body) {
+    const r = await fetch(path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: body === undefined ? {} : { "Content-Type": "application/json", "X-TvHome": "1" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      credentials: "same-origin",
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || "电视没响应，请确认手机和电视在同一个 Wi-Fi");
+    return data;
+  }
+
+  function showCast() { $("pairBox").classList.add("hidden"); $("castBox").classList.remove("hidden"); }
+
+  async function boot() {
+    // 扫电视上的二维码进来时，配对码在 # 后面，不会发给服务器日志，也不会留在浏览记录里
+    const m = location.hash.match(/code=(\d{6})/);
+    if (m) history.replaceState(null, "", location.pathname);
+    const s = await api("/api/session");
+    if (s.paired) return showCast();
+    if (m) {
+      try { await api("/api/pair", { code: m[1] }); return showCast(); }
+      catch (e) { msg($("pairMsg"), "二维码过期了，请输入电视上现在显示的配对码", "bad"); }
+    }
+    $("pairBox").classList.remove("hidden");
+  }
+
+  async function pair() {
+    const code = $("code").value.trim();
+    if (!/^\d{6}$/.test(code)) return msg($("pairMsg"), "请输入 6 位数字", "bad");
+    $("pairBtn").disabled = true;
+    try { await api("/api/pair", { code }); showCast(); }
+    catch (e) { msg($("pairMsg"), e.message, "bad"); }
+    finally { $("pairBtn").disabled = false; }
+  }
+  $("pairBtn").addEventListener("click", pair);
+  $("code").addEventListener("keydown", e => { if (e.key === "Enter") pair(); });
+
+  // 每次重新选择 +1，还在传的上一批看到不一样就停下
+  let gen = 0;
+
+  function upload(file, headers, onProgress) {
+    return new Promise((resolve, reject) => {
+      const x = xhr = new XMLHttpRequest();
+      x.open("POST", "/api/cast/upload");
+      x.setRequestHeader("X-TvHome", "1");
+      x.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+      for (const k in headers) x.setRequestHeader(k, headers[k]);
+      x.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded);
+      x.onload = () => {
+        let data = {};
+        try { data = JSON.parse(x.responseText); } catch (_) {}
+        x.status === 200 ? resolve(data) : reject(new Error(data.error || "发送失败，请重试"));
+      };
+      x.onerror = () => reject(new Error("连不上电视，请确认手机和电视在同一个 Wi-Fi"));
+      x.onabort = () => reject(null);
+      x.send(file);
+    });
+  }
+
+  async function send(files) {
+    if (xhr) xhr.abort();
+    const my = ++gen;
+    const videos = files.filter(f => (f.type || "").startsWith("video/"));
+    const isVideo = videos.length > 0;
+    // 视频一次只能放一个；混着选了照片和视频时只发第一个视频
+    const list = isVideo ? [videos[0]] : files;
+    const note = isVideo && files.length > 1 ? "（视频一次只能投一个，只发了第一个视频）" : "";
+    const total = list.reduce((n, f) => n + f.size, 0);
+    const batch = Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+    $("fname").textContent = (list.length > 1 ? list.length + " 张照片" : list[0].name) + " · " + (total / 1048576).toFixed(1) + " MB";
+    $("prog").style.width = "0";
+    $("sendBox").classList.remove("hidden");
+    $("ctrlBox").classList.add("hidden");
+    $("videoCtrl").classList.toggle("hidden", !isVideo);
+    $("photoCtrl").classList.toggle("hidden", list.length < 2);
+    msg($("sendMsg"), "正在发送到电视…");
+
+    let sent = 0;
+    for (let i = 0; i < list.length; i++) {
+      try {
+        await upload(list[i], { "X-Cast-Batch": batch, "X-Cast-Index": String(i), "X-Cast-Total": String(list.length) }, loaded => {
+          if (my !== gen) return;
+          const p = Math.round((sent + loaded) * 100 / total);
+          $("prog").style.width = p + "%";
+          msg($("sendMsg"), "正在发送到电视… " + (list.length > 1 ? (i + 1) + "/" + list.length + " · " : "") + p + "%");
+        });
+      } catch (e) {
+        if (my === gen && e) msg($("sendMsg"), (list.length > 1 ? "第 " + (i + 1) + " 张：" : "") + e.message, "bad");
+        return;
+      }
+      if (my !== gen) return;
+      sent += list[i].size;
+      // 第一个到了电视就开始放，这时就能用控制按钮
+      $("ctrlBox").classList.remove("hidden");
+    }
+    xhr = null;
+    $("prog").style.width = "100%";
+    msg($("sendMsg"), (isVideo ? "电视正在播放" : list.length > 1 ? "全部发完，可以在电视上翻页" : "电视上已显示") + note, "ok");
+  }
+
+  $("file").addEventListener("change", e => {
+    const files = Array.from(e.target.files || []);
+    if (files.length) send(files);
+    e.target.value = "";
+  });
+
+  async function control(action) {
+    try {
+      await api("/api/cast/control", { action });
+      if (action === "stop") { gen++; if (xhr) xhr.abort(); $("ctrlBox").classList.add("hidden"); $("sendBox").classList.add("hidden"); msg($("sendMsg"), "已停止投屏"); }
+    } catch (e) { msg($("sendMsg"), e.message, "bad"); }
+  }
+  $("pauseBtn").addEventListener("click", () => control("pause"));
+  $("playBtn").addEventListener("click", () => control("play"));
+  $("prevBtn").addEventListener("click", () => control("prev"));
+  $("nextBtn").addEventListener("click", () => control("next"));
+  $("stopBtn").addEventListener("click", () => control("stop"));
+
+  boot().catch(e => { msg($("pairMsg"), e.message, "bad"); $("pairBox").classList.remove("hidden"); });
+})();
+</script>
+</body>
+</html>

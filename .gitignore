@@ -1,0 +1,13 @@
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+# 设备桥本地扫描缓存（含家里内网 IP）
+tools/mijia-bridge/devices.json
+node_modules/
+.kotlin/

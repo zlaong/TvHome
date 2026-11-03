@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>家里设备</title>
+<style>
+  :root{
+    --bg:#08090c; --card:#12141a; --line:#232733;
+    --text:#f2f4f8; --dim:#8b93a5; --accent:#6fa8ff; --ok:#52d98a;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:radial-gradient(1200px 600px at 80% -10%, #16213c 0%, var(--bg) 55%);
+    color:var(--text); font:15px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+    min-height:100vh; padding:32px 20px 60px;
+  }
+  header{max-width:1080px;margin:0 auto 26px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{font-size:26px;margin:0;letter-spacing:.5px}
+  .meta{color:var(--dim);font-size:13px}
+  .grid{max-width:1080px;margin:0 auto;display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px 18px 14px;transition:.2s}
+  .card.on{background:linear-gradient(180deg,#1b2233,#12141a);border-color:#33507f}
+  .row{display:flex;align-items:center;gap:10px}
+  .name{font-size:17px;font-weight:600;flex:1;cursor:text;border-bottom:1px dashed transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .name:hover{border-bottom-color:#39405a}
+  .dot{width:8px;height:8px;border-radius:50%;background:#3a4152;flex:none}
+  .dot.live{background:var(--ok);box-shadow:0 0 8px rgba(82,217,138,.7)}
+  .switch{width:52px;height:30px;border-radius:16px;background:#2a3040;border:none;position:relative;cursor:pointer;transition:.2s;flex:none;padding:0}
+  .switch i{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#8b93a5;transition:.2s}
+  .switch.on{background:#2f4d7d}
+  .switch.on i{left:25px;background:var(--accent)}
+  .switch:disabled{opacity:.4;cursor:not-allowed}
+  label.sl{display:flex;justify-content:space-between;margin-top:16px;color:var(--dim);font-size:12px;letter-spacing:1px}
+  .val{color:var(--text);font-variant-numeric:tabular-nums;letter-spacing:0}
+  input[type=range]{width:100%;margin:6px 0 0;accent-color:var(--accent)}
+  input[type=range]:disabled{opacity:.35}
+  .state{margin-top:12px;font-size:12px;color:var(--dim)}
+  footer{max-width:1080px;margin:34px auto 0;color:var(--dim);font-size:12px;line-height:1.8}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#1c2333;border:1px solid #2d3648;border-radius:10px;padding:9px 16px;font-size:13px;opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>家里设备</h1>
+  <span class="meta" id="meta">加载中…</span>
+</header>
+<div class="grid" id="grid"></div>
+<footer>
+  点设备名可以改名（回车保存，Esc 取消）。<br>
+  数据走局域网直连（Yeelight 本地协议），不经过米家云。
+</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+const grid = document.getElementById('grid')
+const metaEl = document.getElementById('meta')
+const toastEl = document.getElementById('toast')
+const views = new Map()
+let editing = false
+
+function toast(msg) {
+  toastEl.textContent = msg
+  toastEl.classList.add('show')
+  clearTimeout(toast._t)
+  toast._t = setTimeout(() => toastEl.classList.remove('show'), 1600)
+}
+
+async function api(path, body) {
+  const res = await fetch(path, body ? { method: 'POST', body: JSON.stringify(body) } : undefined)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status))
+  return data
+}
+
+function buildCard(d) {
+  const el = document.createElement('div')
+  el.className = 'card'
+  el.innerHTML = `
+    <div class="row">
+      <span class="dot"></span>
+      <span class="name"></span>
+      <button class="switch"><i></i></button>
+    </div>
+    <label class="sl"><span>亮度</span><span class="val brightVal"></span></label>
+    <input type="range" class="bright" min="1" max="100">
+    <label class="sl"><span>色温</span><span class="val ctVal"></span></label>
+    <input type="range" class="ct" min="1700" max="6500" step="100">
+    <div class="state"></div>
+  `
+  const v = {
+    root: el,
+    dot: el.querySelector('.dot'),
+    name: el.querySelector('.name'),
+    sw: el.querySelector('.switch'),
+    bright: el.querySelector('.bright'),
+    brightVal: el.querySelector('.brightVal'),
+    ct: el.querySelector('.ct'),
+    ctVal: el.querySelector('.ctVal'),
+    state: el.querySelector('.state'),
+    data: d,
+  }
+
+  v.sw.addEventListener('click', async () => {
+    const next = !v.sw.classList.contains('on')
+    v.sw.disabled = true
+    try {
+      await api('/api/device/' + encodeURIComponent(d.id), { on: next })
+      toast(next ? '已打开' : '已关闭')
+    } catch (e) { toast('失败：' + e.message) }
+    v.sw.disabled = false
+    refresh()
+  })
+
+  const slider = (input, key, label, fmt) => {
+    input.addEventListener('input', () => { v[key + 'Val'].textContent = fmt(Number(input.value)) })
+    input.addEventListener('change', async () => {
+      try {
+        await api('/api/device/' + encodeURIComponent(d.id), { [key]: Number(input.value) })
+        toast(label + ' ' + fmt(Number(input.value)))
+      } catch (e) { toast('失败：' + e.message) }
+      setTimeout(refresh, 400)
+    })
+  }
+  slider(v.bright, 'bright', '亮度', n => n)
+  slider(v.ct, 'ct', '色温', n => n + 'K')
+
+  v.name.addEventListener('click', () => startRename(v))
+  return v
+}
+
+function startRename(v) {
+  if (editing) return
+  editing = true
+  const input = document.createElement('input')
+  input.value = v.data.name
+  input.style.cssText = 'flex:1;min-width:0;background:#0d0f14;border:1px solid #33507f;border-radius:8px;color:#f2f4f8;font-size:16px;padding:4px 8px;font-family:inherit'
+  v.name.replaceWith(input)
+  input.focus()
+  input.select()
+  const finish = async (save) => {
+    if (!editing) return
+    editing = false
+    const next = input.value.trim()
+    if (save && next && next !== v.data.name) {
+      try {
+        await api('/api/device/' + encodeURIComponent(v.data.id) + '/name', { name: next })
+        v.data.name = next
+        toast('已改名')
+      } catch (e) { toast('改名失败：' + e.message) }
+    }
+    input.replaceWith(v.name)
+    sync(v, v.data)
+    refresh()
+  }
+  input.addEventListener('blur', () => finish(true))
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') input.blur()
+    if (e.key === 'Escape') { editing = false; input.replaceWith(v.name); sync(v, v.data) }
+  })
+}
+
+function sync(v, d) {
+  v.data = d
+  v.root.classList.toggle('on', !!d.on)
+  v.dot.classList.toggle('live', !!d.online)
+  if (!editing) v.name.textContent = d.name
+  v.sw.classList.toggle('on', !!d.on)
+  v.sw.disabled = !d.online
+  v.bright.disabled = !d.online
+  v.ct.disabled = !d.online
+  if (document.activeElement !== v.bright) {
+    v.bright.value = d.brightness
+    v.brightVal.textContent = d.brightness
+  }
+  if (document.activeElement !== v.ct) {
+    v.ct.value = d.colorTemp
+    v.ctVal.textContent = d.colorTemp + 'K'
+  }
+  v.state.textContent = d.online ? (d.on ? '已打开' : '已关闭') : '连不上（设备休眠，或只允许单连接）'
+}
+
+async function refresh() {
+  try {
+    const data = await api('/api/home')
+    const list = data.devices || []
+    for (const d of list) {
+      let v = views.get(d.id)
+      if (!v) { v = buildCard(d); views.set(d.id, v); grid.appendChild(v.root) }
+      sync(v, d)
+    }
+    for (const [id, v] of views) {
+      if (!list.some(d => d.id === id)) { v.root.remove(); views.delete(id) }
+    }
+    const t = new Date(data.updatedAt).toTimeString().slice(0, 8)
+    metaEl.textContent = `${list.filter(d => d.online).length}/${list.length} 台在线 · 更新于 ${t}`
+  } catch (e) {
+    metaEl.textContent = '连不上桥接服务（确认 server.js 在跑）'
+  }
+}
+
+refresh()
+setInterval(refresh, 2000)
+</script>
+</body>
+</html>

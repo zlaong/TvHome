@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>电视桌面设置</title>
+<style>
+  :root { --bg:#0b0f18; --card:#151b27; --line:#263044; --text:#eef2f8; --dim:#8a96ab; --accent:#4f9dff; --bad:#ff6b6b; --ok:#4ade80; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:40px 20px 80px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  h2 { font-size:17px; margin:0 0 14px; }
+  .sub { color:var(--dim); margin:0 0 28px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:22px; margin-bottom:18px; }
+  label { display:block; font-size:13px; color:var(--dim); margin:14px 0 6px; }
+  label:first-of-type { margin-top:0; }
+  input[type=text], input[type=password] { width:100%; padding:11px 13px; border-radius:10px; border:1px solid var(--line); background:#0e131d; color:var(--text); font-size:15px; }
+  input:focus { outline:2px solid var(--accent); border-color:transparent; }
+  .hint { font-size:12.5px; color:var(--dim); margin-top:6px; }
+  .hint a { color:var(--accent); }
+  button { padding:10px 20px; border-radius:10px; border:1px solid var(--line); background:#1f2737; color:var(--text); font-size:15px; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#06101e; font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:16px; }
+  .msg { font-size:14px; }
+  .msg.bad { color:var(--bad); } .msg.ok { color:var(--ok); }
+  .pair input { font-size:28px; letter-spacing:10px; text-align:center; max-width:260px; }
+  .group { margin-top:18px; }
+  .group h3 { font-size:13px; color:var(--dim); font-weight:500; margin:0 0 8px; letter-spacing:1px; }
+  .ent { display:flex; align-items:center; gap:10px; padding:7px 4px; border-bottom:1px solid #1c2433; }
+  .ent:last-child { border-bottom:0; }
+  .ent .name { flex:1; }
+  .ent .id { color:var(--dim); font-size:12px; }
+  .ent .st { color:var(--dim); font-size:13px; white-space:nowrap; }
+  .count { color:var(--dim); font-size:13px; }
+  .hidden { display:none; }
+  .sec { font-size:15px; margin:26px 0 6px; color:var(--text); font-weight:600; }
+  .envgrid { display:grid; grid-template-columns: 90px 1fr; gap:8px 12px; align-items:center; margin-top:10px; }
+  .envgrid label { margin:0; font-size:14px; color:var(--text); }
+  select { width:100%; padding:9px 11px; border-radius:10px; border:1px solid var(--line); background:#0e131d; color:var(--text); font-size:14px; }
+  .choice { display:flex; gap:22px; }
+  .choice label { display:flex; align-items:center; gap:6px; margin:0; font-size:15px; color:var(--text); cursor:pointer; }
+  .walls { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:12px; }
+  .wall { position:relative; border-radius:12px; overflow:hidden; border:2px solid transparent; cursor:pointer; background:#0e131d; padding:0; text-align:left; }
+  .wall img { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; }
+  .wall .ph { width:100%; aspect-ratio:16/9; display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:13px; }
+  .wall span { display:block; font-size:12.5px; padding:6px 8px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .wall.on { border-color:var(--accent); }
+  .wall.on span { color:var(--text); }
+  .wall.on::after { content:"✓"; position:absolute; top:6px; right:6px; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff; font-size:13px; display:flex; align-items:center; justify-content:center; }
+  .upload { display:block; margin-top:14px; padding:14px; border-radius:12px; background:var(--accent); color:#06101e; font-weight:600; text-align:center; cursor:pointer; }
+  @media (max-width:600px) {
+    main { padding:calc(20px + env(safe-area-inset-top)) 14px calc(60px + env(safe-area-inset-bottom)); }
+    h1 { font-size:22px; }
+    section { padding:16px; border-radius:12px; }
+    .walls { grid-template-columns:repeat(2, 1fr); gap:10px; }
+    input[type=text], input[type=password] { font-size:16px; }
+    .choice { flex-direction:column; gap:10px; }
+  }
+  .bar { position:sticky; bottom:0; background:linear-gradient(transparent, var(--bg) 30%); padding:24px 0 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>电视桌面设置</h1>
+  <p class="sub">壁纸点一下立即换；其他项改完点最下面的「保存」，电视立即生效。</p>
+
+  <section id="pairBox" class="pair hidden">
+    <h2>输入电视上的配对码</h2>
+    <p class="hint" style="margin-top:0">电视上进入「设置」页，就能看到 6 位配对码。配对一次后，这台电脑的浏览器会被记住。</p>
+    <input id="code" type="text" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="______">
+    <div class="row"><button id="pairBtn" class="primary">配对</button><span id="pairMsg" class="msg"></span></div>
+  </section>
+
+  <div id="form" class="hidden">
+    <section id="wallpaper">
+      <h2>壁纸</h2>
+      <div class="walls" id="walls"></div>
+      <label class="upload" for="wallFile">上传照片当壁纸</label>
+      <input id="wallFile" type="file" accept="image/*" class="hidden">
+      <div class="hint">横版照片效果最好，电视会自动裁成 16:9。必应壁纸来自 cn.bing.com，「每日一图」每天自动换。</div>
+      <div id="wallMsg" class="msg"></div>
+    </section>
+
+    <section>
+      <h2>基本</h2>
+      <label for="printerHost">Mac mini 地址（PrintPilot 打印服务）</label>
+      <input id="printerHost" type="text" placeholder="192.168.1.10:3000">
+      <label>天气位置</label>
+      <div class="choice">
+        <label><input type="radio" name="wmode" id="wAuto" value="auto"> 自动定位</label>
+        <label><input type="radio" name="wmode" id="wManual" value="manual"> 手动设置城市</label>
+      </div>
+      <div class="hint" id="wHint"></div>
+      <div id="cityBox">
+        <label for="cityName">天气城市</label>
+        <input id="cityName" type="text" placeholder="杭州">
+        <div class="hint">例：杭州、上海、北京朝阳</div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="home">米家（通过 Home Assistant）</h2>
+      <label for="haUrl">Home Assistant 地址</label>
+      <input id="haUrl" type="text">
+      <div class="hint">留空就用 <span id="haDefault"></span></div>
+
+      <label for="haToken">长期访问令牌</label>
+      <input id="haToken" type="password" autocomplete="off" spellcheck="false">
+      <div class="hint">
+        在 Home Assistant 里点左下角头像 →「安全」→ 最下面「长期访问令牌」→「创建令牌」，复制后粘贴到这里。
+        <a id="haLink" href="#" target="_blank" rel="noopener noreferrer">打开 Home Assistant 安全页</a>
+      </div>
+      <div class="row">
+        <button id="testBtn">测试连接并列出设备</button>
+        <button id="clearBtn" class="hidden">清除令牌</button>
+        <span id="haMsg" class="msg"></span>
+      </div>
+
+      <div id="entBox" class="hidden">
+        <h3 class="sec">环境读数</h3>
+        <div class="hint" style="margin-top:0">卡片左边的大字。选「自动」会优先用客厅的温湿度计。</div>
+        <div class="envgrid" id="envs"></div>
+
+        <h3 class="sec">提醒</h3>
+        <div class="hint" style="margin-top:0">
+          不用勾选，自动检查全部设备：门窗开着、烟雾报警或烟雾传感器离线、扫地机出错、
+          滤芯低于 10%、传感器电量低于 15%、PM2.5 高于 75、CO₂ 高于 1000 ppm。
+        </div>
+
+        <h3 class="sec">运行中的设备</h3>
+        <div class="row" style="justify-content:space-between; margin-top:0">
+          <span class="count" id="selCount"></span>
+          <input id="filter" type="text" placeholder="搜索设备名" style="max-width:240px">
+        </div>
+        <div class="hint">勾选的设备开着时才出现在卡片底部，关着的不占位置。</div>
+        <div id="ents"></div>
+      </div>
+    </section>
+
+    <div class="bar row">
+      <button id="saveBtn" class="primary">保存</button>
+      <span id="saveMsg" class="msg"></span>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const DOMAIN_NAMES = { light:"灯", switch:"开关 / 插座", fan:"风扇 / 净化器", climate:"空调", cover:"窗帘 / 晾衣架",
+    humidifier:"加湿器", vacuum:"扫地机", media_player:"音箱 / 播放器", lock:"门锁" };
+  const ENV_KINDS = [["temperature","温度"],["humidity","湿度"],["pm25","PM2.5"],["carbon_dioxide","CO₂"]];
+
+  let selected = [];          // 勾选顺序 = 首页显示顺序
+  let envSel = {};            // 环境读数：kind → 实体；没有 key = 自动，"" = 不显示
+  let entities = null;        // 列出来的设备（含环境传感器）
+  let tokenSet = false;
+
+  async function api(path, body) {
+    const opt = body === undefined ? {} : { method:"POST", headers:{ "Content-Type":"application/json", "X-TvHome":"1" }, body:JSON.stringify(body) };
+    const r = await fetch(path, { credentials:"same-origin", ...opt });
+    let data = {};
+    try { data = await r.json(); } catch (_) {}
+    if (r.status === 401 && path !== "/api/pair") { showPair(); throw new Error(data.error || "请先配对"); }
+    if (!r.ok) throw new Error(data.error || ("出错了（" + r.status + "）"));
+    return data;
+  }
+
+  function msg(el, text, kind) { el.textContent = text; el.className = "msg" + (kind ? " " + kind : ""); }
+
+  function showPair() { $("pairBox").classList.remove("hidden"); $("form").classList.add("hidden"); $("code").focus(); }
+
+  async function boot() {
+    // 扫电视上的二维码进来时，配对码和要跳到的分区在 # 后面，不会发给服务器日志
+    const h = new URLSearchParams(location.hash.slice(1));
+    if (location.hash) history.replaceState(null, "", location.pathname);
+    let s = await api("/api/session");
+    if (!s.paired && /^\d{6}$/.test(h.get("code") || "")) {
+      try { await api("/api/pair", { code: h.get("code") }); s = { paired: true }; }
+      catch (_) { msg($("pairMsg"), "二维码过期了，请输入电视上现在显示的配对码", "bad"); }
+    }
+    if (!s.paired) return showPair();
+    $("pairBox").classList.add("hidden");
+    $("form").classList.remove("hidden");
+    fill(await api("/api/config"));
+    loadWalls();
+    const sec = h.get("s");
+    if (sec && $(sec)) $(sec).scrollIntoView({ behavior: "smooth" });
+  }
+
+  // ---------------- 壁纸
+  function renderWalls(w) {
+    const box = $("walls");
+    box.textContent = "";
+    const items = [{ mode: "builtin", title: "星空下的雪山", thumb: null }];
+    if (w.bing.length) items.push({ mode: "daily", title: "必应每日一图", thumb: w.bing[0].thumb });
+    if (w.mode === "custom") items.push({ mode: "custom", title: "手机上传的照片", thumb: null });
+    for (const b of w.bing) items.push({ mode: "bing", id: b.id, title: b.title || b.copyright, thumb: b.thumb });
+    for (const it of items) {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.className = "wall" + ((it.mode === w.mode && (it.mode !== "bing" || it.id === w.bingId)) ? " on" : "");
+      if (it.thumb) { const img = document.createElement("img"); img.src = it.thumb; img.loading = "lazy"; img.alt = ""; el.appendChild(img); }
+      else { const ph = document.createElement("div"); ph.className = "ph"; ph.textContent = it.mode === "custom" ? "自己的照片" : "电视自带"; el.appendChild(ph); }
+      const t = document.createElement("span");
+      t.textContent = it.title;
+      el.appendChild(t);
+      if (it.mode !== "custom") el.addEventListener("click", () => chooseWall(it));
+      box.appendChild(el);
+    }
+  }
+  async function loadWalls() {
+    try { renderWalls(await api("/api/wallpaper")); }
+    catch (e) { msg($("wallMsg"), e.message, "bad"); }
+  }
+  async function chooseWall(it) {
+    msg($("wallMsg"), "正在更换…");
+    try { renderWalls(await api("/api/wallpaper", { mode: it.mode, id: it.id || "" })); msg($("wallMsg"), "已换好，电视上已生效", "ok"); }
+    catch (e) { msg($("wallMsg"), e.message, "bad"); }
+  }
+  $("wallFile").addEventListener("change", e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    const x = new XMLHttpRequest();
+    x.open("POST", "/api/wallpaper/upload");
+    x.setRequestHeader("X-TvHome", "1");
+    x.setRequestHeader("Content-Type", f.type || "image/jpeg");
+    x.upload.onprogress = ev => ev.lengthComputable && msg($("wallMsg"), "正在上传… " + Math.round(ev.loaded * 100 / ev.total) + "%");
+    x.onload = () => {
+      let d = {};
+      try { d = JSON.parse(x.responseText); } catch (_) {}
+      if (x.status === 200) { renderWalls(d); msg($("wallMsg"), "已换好，电视上已生效", "ok"); }
+      else msg($("wallMsg"), d.error || "上传失败，请重试", "bad");
+    };
+    x.onerror = () => msg($("wallMsg"), "连不上电视，请确认手机和电视在同一个 Wi-Fi", "bad");
+    x.send(f);
+  });
+
+  function fill(c) {
+    $("printerHost").value = c.printerHost;
+    $("cityName").value = c.cityName;
+    autoCity = c.autoCity || "";
+    (c.weatherAuto ? $("wAuto") : $("wManual")).checked = true;
+    updateWeather();
+    $("haUrl").value = c.haUrl;
+    $("haUrl").placeholder = c.haUrlDefault;
+    $("haDefault").textContent = c.haUrlDefault;
+    tokenSet = c.haTokenSet;
+    $("haToken").value = "";
+    $("haToken").placeholder = tokenSet ? ("已设置" + (c.haTokenTail ? "（末 4 位 " + c.haTokenTail + "）" : "") + "，留空表示不改") : "粘贴令牌";
+    $("clearBtn").classList.toggle("hidden", !tokenSet);
+    selected = c.haEntities.slice();
+    envSel = Object.assign({}, c.haEnv || {});
+    updateLink();
+    if (tokenSet) loadEntities(true);
+  }
+
+  let autoCity = "";
+  function updateWeather() {
+    const auto = $("wAuto").checked;
+    $("cityBox").classList.toggle("hidden", auto);
+    $("wHint").textContent = auto
+      ? "按家里网络的位置估算，精确到城市" + (autoCity ? "；当前定位：" + autoCity : "；保存后开始定位")
+      : "用下面填写的城市";
+  }
+  $("wAuto").addEventListener("change", updateWeather);
+  $("wManual").addEventListener("change", updateWeather);
+
+  function haBase() { return $("haUrl").value.trim() || $("haUrl").placeholder; }
+  function updateLink() {
+    let u = haBase();
+    if (!/^https?:\/\//.test(u)) u = "http://" + u;
+    $("haLink").href = u.replace(/\/+$/, "") + "/profile/security";
+  }
+  $("haUrl").addEventListener("input", updateLink);
+
+  async function loadEntities(quiet) {
+    $("testBtn").disabled = true;
+    if (!quiet) msg($("haMsg"), "正在连接…");
+    try {
+      const r = await api("/api/ha/entities", { haUrl: $("haUrl").value, haToken: $("haToken").value });
+      entities = r.entities;
+      // 第一次配置还没勾过：用推荐的默认值
+      if (selected.length === 0) selected = entities.filter(e => e.suggested).map(e => e.id);
+      msg($("haMsg"), "连接成功，找到 " + entities.filter(e => DOMAIN_NAMES[e.domain]).length + " 个设备", "ok");
+      $("envs").replaceChildren();
+      render();
+    } catch (e) {
+      msg($("haMsg"), e.message, "bad");
+    } finally {
+      $("testBtn").disabled = false;
+    }
+  }
+
+  function renderEnv() {
+    const box = $("envs");
+    if (box.childElementCount) return;  // 搜索框重绘时不动下拉框，免得丢掉正在选的值
+    for (const [kind, label] of ENV_KINDS) {
+      const l = document.createElement("label");
+      l.textContent = label;
+      const sel = document.createElement("select");
+      const add = (value, text) => { const o = document.createElement("option"); o.value = value; o.textContent = text; sel.appendChild(o); };
+      add("auto", "自动（客厅优先）");
+      add("", "不显示");
+      for (const e of entities.filter(x => x.envKind === kind)) add(e.id, e.name + " · " + e.state);
+      const want = (kind in envSel) ? envSel[kind] : "auto";
+      // 之前选的传感器已经从 Home Assistant 删掉了：回到自动
+      sel.value = [...sel.options].some(o => o.value === want) ? want : "auto";
+      sel.addEventListener("change", () => {
+        if (sel.value === "auto") delete envSel[kind]; else envSel[kind] = sel.value;
+      });
+      box.append(l, sel);
+    }
+  }
+
+  function render() {
+    renderEnv();
+    const box = $("ents");
+    box.replaceChildren();
+    const q = $("filter").value.trim().toLowerCase();
+    const groups = {};
+    for (const e of entities) {
+      if (!DOMAIN_NAMES[e.domain]) continue;  // 环境传感器只出现在上面的下拉框里
+      if (q && !e.name.toLowerCase().includes(q) && !e.id.includes(q)) continue;
+      (groups[e.domain] ||= []).push(e);
+    }
+    for (const [domain, list] of Object.entries(groups)) {
+      const g = document.createElement("div");
+      g.className = "group";
+      const h = document.createElement("h3");
+      h.textContent = (DOMAIN_NAMES[domain] || domain) + " · " + list.length;
+      g.appendChild(h);
+      for (const e of list) {
+        const row = document.createElement("label");
+        row.className = "ent";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = selected.includes(e.id);
+        cb.addEventListener("change", () => {
+          if (cb.checked) { if (!selected.includes(e.id)) selected.push(e.id); }
+          else selected = selected.filter(x => x !== e.id);
+          updateCount();
+        });
+        const name = document.createElement("span");
+        name.className = "name";
+        name.textContent = e.name;
+        const id = document.createElement("div");
+        id.className = "id";
+        id.textContent = e.id;
+        name.appendChild(id);
+        const st = document.createElement("span");
+        st.className = "st";
+        st.textContent = e.state;
+        row.append(cb, name, st);
+        g.appendChild(row);
+      }
+      box.appendChild(g);
+    }
+    $("entBox").classList.remove("hidden");
+    updateCount();
+  }
+
+  function updateCount() { $("selCount").textContent = "已勾选 " + selected.length + " 个（最多 40 个）"; }
+
+  $("filter").addEventListener("input", () => entities && render());
+  $("testBtn").addEventListener("click", () => loadEntities(false));
+
+  $("clearBtn").addEventListener("click", async () => {
+    if (!confirm("清除令牌后，电视的米家卡片会改回读 Mac mini 上的设备桥。确定吗？")) return;
+    try {
+      fill(await api("/api/config", { haTokenClear: true, haEntities: [] }));
+      entities = null;
+      $("entBox").classList.add("hidden");
+      msg($("haMsg"), "已清除", "ok");
+    } catch (e) { msg($("haMsg"), e.message, "bad"); }
+  });
+
+  $("saveBtn").addEventListener("click", async () => {
+    $("saveBtn").disabled = true;
+    msg($("saveMsg"), "正在保存…");
+    try {
+      const body = { printerHost: $("printerHost").value, cityName: $("cityName").value,
+        weatherAuto: $("wAuto").checked, haUrl: $("haUrl").value };
+      if ($("haToken").value.trim()) body.haToken = $("haToken").value.trim();
+      if (entities) {
+        body.haEntities = selected.slice(0, 40);
+        body.haEnv = {};
+        for (const [k] of ENV_KINDS) body.haEnv[k] = (k in envSel) ? envSel[k] : "auto";
+      }
+      fill(await api("/api/config", body));
+      msg($("saveMsg"), "已保存，电视上已生效", "ok");
+    } catch (e) {
+      msg($("saveMsg"), e.message, "bad");
+    } finally {
+      $("saveBtn").disabled = false;
+    }
+  });
+
+  async function pair() {
+    const code = $("code").value.trim();
+    if (!/^\d{6}$/.test(code)) return msg($("pairMsg"), "请输入 6 位数字", "bad");
+    $("pairBtn").disabled = true;
+    try {
+      await api("/api/pair", { code });
+      msg($("pairMsg"), "");
+      await boot();
+    } catch (e) {
+      msg($("pairMsg"), e.message, "bad");
+      $("code").select();
+    } finally {
+      $("pairBtn").disabled = false;
+    }
+  }
+  $("pairBtn").addEventListener("click", pair);
+  $("code").addEventListener("keydown", e => { if (e.key === "Enter") pair(); });
+
+  boot().catch(e => document.body.prepend(Object.assign(document.createElement("p"), { textContent: e.message, className: "msg bad" })));
+})();
+</script>
+</body>
+</html>

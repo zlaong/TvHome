@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TV 桌面图标：320x180 深色渐变 + 房子轮廓 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path
+        android:fillColor="#101A2E"
+        android:pathData="M0,0h320v180h-320z" />
+    <path
+        android:fillColor="#1E3A5F"
+        android:pathData="M0,120 L320,40 L320,180 L0,180 z" />
+    <path
+        android:fillColor="#4FA8FF"
+        android:pathData="M160,46 L232,104 L222,104 L222,138 L98,138 L98,104 L88,104 z" />
+    <path
+        android:fillColor="#101A2E"
+        android:pathData="M146,138 L146,110 L174,110 L174,138 z" />
+</vector>
