@@ -443,7 +443,7 @@ private fun ThingTile(t: HomeThing, ctl: DetailCtl, focused: Boolean, onTap: () 
     val ui = LocalUi.current
     val on = ctl.thingOn(t)
     val busy = ctl.isPending("${t.id}|power", t.on)
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(Tv.FAST, easing = Tv.easeOut), label = "tile")
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, Tv.focus(), label = "tile")
     val shape = RoundedCornerShape(ui.d(22))
     val bg = when {
         focused -> Color.White

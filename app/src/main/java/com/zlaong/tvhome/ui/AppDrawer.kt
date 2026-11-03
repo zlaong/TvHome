@@ -108,7 +108,7 @@ fun AppDrawer(
         if (kotlin.math.abs(dest - scroll.value) > scroll.viewportSize) {
             scroll.scrollTo(dest)
         } else {
-            scroll.animateScrollTo(dest, tween(Tv.SCROLL, easing = Tv.easeOut))
+            scroll.animateScrollTo(dest, Tv.move())
         }
     }
 
@@ -192,8 +192,8 @@ fun AppDrawer(
 @Composable
 private fun TileView(tile: Tile, focused: Boolean, onTap: () -> Unit) {
     val ui = LocalUi.current
-    val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(Tv.FAST, easing = Tv.easeOut), label = "tile")
-    val ring by animateFloatAsState(if (focused) 1f else 0f, tween(Tv.FAST), label = "tileRing")
+    val scale by animateFloatAsState(if (focused) 1.08f else 1f, Tv.focus(), label = "tile")
+    val ring by animateFloatAsState(if (focused) 1f else 0f, Tv.focus(), label = "tileRing")
     val sheen by rememberSheen(focused)
     val shape = RoundedCornerShape(ui.d(14))
     val isAdd = tile is Tile.Add

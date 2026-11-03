@@ -36,7 +36,7 @@ fun TvCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) focusedScale else 1f, label = "cardScale")
+    val scale by animateFloatAsState(if (focused) focusedScale else 1f, Tv.focus(), label = "cardScale")
     val shape = RoundedCornerShape(20.dp)
 
     Column(

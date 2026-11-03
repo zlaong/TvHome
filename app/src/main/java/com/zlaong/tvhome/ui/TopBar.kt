@@ -122,7 +122,7 @@ private fun Chip(id: ChipId, data: HomeData, focused: Boolean, onTap: (ChipId) -
     val ui = LocalUi.current
     val info = chipInfo(id, data)
     val isTime = id == ChipId.Time
-    val scale by animateFloatAsState(if (focused) 1.04f else 1f, tween(Tv.FAST, easing = Tv.easeOut), label = "chip")
+    val scale by animateFloatAsState(if (focused) 1.04f else 1f, Tv.focus(), label = "chip")
     val down = info.dot == Dot.Down
     val fg = when {
         focused && down -> Color(0xFFC62828)
@@ -146,7 +146,7 @@ private fun Chip(id: ChipId, data: HomeData, focused: Boolean, onTap: (ChipId) -
             .background(if (focused) Color.White else Tv.glassTint.copy(alpha = 0.42f), shape)
             .border(ui.d(1), if (focused) Color.Transparent else Color.White.copy(alpha = 0.12f), shape)
             .tap { onTap(id) }
-            .animateContentSize(tween(Tv.FAST, easing = Tv.easeOut))
+            .animateContentSize(Tv.focus())
             .padding(start = ui.d(padStart), end = ui.d(padEnd)),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(ui.d(12), Alignment.CenterHorizontally),

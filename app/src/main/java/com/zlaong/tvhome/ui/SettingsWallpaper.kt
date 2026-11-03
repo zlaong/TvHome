@@ -123,7 +123,7 @@ internal fun WallpaperPanel() {
 private fun WallTile(item: WallItem, modifier: Modifier, onClick: () -> Unit) {
     val context = LocalContext.current
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(Tv.FAST, easing = Tv.easeOut), label = "wall")
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, Tv.focus(), label = "wall")
     val ver by WallpaperRepo.version.collectAsState()
     val thumb by produceState<Bitmap?>(null, item.thumbKey, ver) { value = withContext(Dispatchers.IO) { item.thumb(context) } }
     val shape = RoundedCornerShape(12.dp)

@@ -56,7 +56,7 @@
 # 产物：app/build/outputs/apk/debug/app-debug.apk
 
 adb connect <电视IP>:5555      # 电视先开「开发者选项 → 网络调试」
-./tools/install.sh             # 装过一次之后，改完再跑约 3 秒
+./tools/install.sh             # 编译正式版并装到电视；要看调试日志加 --debug
 ```
 
 装好后按遥控器 Home 键，在弹出的选择框里选「家里桌面」并勾「始终」。没弹框的话：设置 → 应用 → 默认应用 → 主屏幕 → 选择「家里桌面」。

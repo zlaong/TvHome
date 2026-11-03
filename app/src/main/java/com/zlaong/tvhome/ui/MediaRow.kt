@@ -134,8 +134,8 @@ fun MediaRow(
             val end = info.viewportEndOffset - info.afterContentPadding
             val over = item.offset + item.size - end
             val under = info.viewportStartOffset + info.beforeContentPadding - item.offset
-            if (over > 0) state.animateScrollBy(over.toFloat(), tween(Tv.SCROLL, easing = Tv.easeOut))
-            else if (under > 0) state.animateScrollBy(-under.toFloat(), tween(Tv.SCROLL, easing = Tv.easeOut))
+            if (over > 0) state.animateScrollBy(over.toFloat(), Tv.move())
+            else if (under > 0) state.animateScrollBy(-under.toFloat(), Tv.move())
         }
     }
 
@@ -159,8 +159,8 @@ fun MediaRow(
 @Composable
 private fun MediaItem(app: InstalledApp, last: Boolean, focused: Boolean, onTap: () -> Unit) {
     val ui = LocalUi.current
-    val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(Tv.FAST, easing = Tv.easeOut), label = "media")
-    val show by animateFloatAsState(if (focused) 1f else 0f, tween(Tv.FAST, easing = Tv.easeOut), label = "mediaName")
+    val scale by animateFloatAsState(if (focused) 1.08f else 1f, Tv.focus(), label = "media")
+    val show by animateFloatAsState(if (focused) 1f else 0f, Tv.focus(), label = "mediaName")
     val sheen by rememberSheen(focused)
     val brand = BrandColor.of(app)
     val shape = RoundedCornerShape(ui.d(16))

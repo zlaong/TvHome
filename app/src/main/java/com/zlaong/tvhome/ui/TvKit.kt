@@ -2,6 +2,7 @@ package com.zlaong.tvhome.ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.Composable
@@ -59,16 +60,22 @@ object Tv {
     val dark = Color(0xFF11151D)
     val glassTint = Color(0xFF0A0E16)
     /**
-     * 起步柔和、收尾减速。原来的 (0.2, 0.8, 0.2, 1) 前 1/3 时间就走完约 80%，
-     * 配上短时长看起来像「跳」过去，而不是「滑」过去。
+     * 只给一次性的动作用（抽屉开合、全屏页淡入、提示条）。
+     * 起点速度不能为 0：(0.3, 0, 0.2, 1) 按键后前 3 帧几乎不动，显得「不跟手」；
+     * (0.2, 0.8, 0.2, 1) 又太冲，像「跳」过去。这条第 1 帧走约 30%，后半段慢慢收。
      */
-    val easeOut = CubicBezierEasing(0.3f, 0f, 0.2f, 1f)
-    /** 焦点放大、描边、圆点等小动作 */
-    const val FAST = 220
-    /** 抽屉开合、卡片翻页 */
+    val easeOut = CubicBezierEasing(0.1f, 0.5f, 0.2f, 1f)
+
+    /**
+     * 焦点放大、描边、圆点：遥控器连按时动画会被打断，弹簧动画能接着当前速度改目标，
+     * 补间动画会从 0 速度重新起步，连按时一顿一顿的。不回弹（阻尼 1）。
+     */
+    fun <T> focus() = spring<T>(dampingRatio = 1f, stiffness = 2500f)
+
+    /** 卡片翻页、列表跟随焦点滚动：位移大，比焦点稍慢 */
+    fun <T> move() = spring<T>(dampingRatio = 1f, stiffness = 800f)
+    /** 抽屉开合、全屏页淡入 */
     const val MOVE = 340
-    /** 列表跟随焦点滚动 */
-    const val SCROLL = 280
 }
 
 /** 模糊后的壁纸 + 根布局尺寸，卡片用它假装「毛玻璃」，比实时模糊省得多 */

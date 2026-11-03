@@ -48,9 +48,9 @@ import kotlin.math.roundToInt
 @Composable
 fun InfoCard(data: HomeData, page: Int, focused: Boolean, onTap: () -> Unit) {
     val ui = LocalUi.current
-    val scale by animateFloatAsState(if (focused) 1.04f else 1f, tween(Tv.FAST, easing = Tv.easeOut), label = "card")
-    val ring by animateFloatAsState(if (focused) 1f else 0f, tween(Tv.FAST), label = "cardRing")
-    val trackX by animateDpAsState(ui.d(-640 * page), tween(Tv.MOVE, easing = Tv.easeOut), label = "track")
+    val scale by animateFloatAsState(if (focused) 1.04f else 1f, Tv.focus(), label = "card")
+    val ring by animateFloatAsState(if (focused) 1f else 0f, Tv.focus(), label = "cardRing")
+    val trackX by animateDpAsState(ui.d(-640 * page), Tv.move(), label = "track")
     val sheen by rememberSheen(focused)
     val shape = RoundedCornerShape(ui.d(28))
 
@@ -86,7 +86,7 @@ fun InfoCard(data: HomeData, page: Int, focused: Boolean, onTap: () -> Unit) {
                 }
             }
         }
-        val dotsAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(Tv.FAST), label = "dots")
+        val dotsAlpha by animateFloatAsState(if (focused) 1f else 0f, Tv.focus(), label = "dots")
         Row(
             Modifier
                 .height(ui.d(12))
@@ -95,7 +95,7 @@ fun InfoCard(data: HomeData, page: Int, focused: Boolean, onTap: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(ui.d(8)),
         ) {
             CARD_PAGES.forEachIndexed { i, _ ->
-                val w by animateDpAsState(ui.d(if (i == page) 36 else 12), tween(Tv.FAST, easing = Tv.easeOut), label = "dot")
+                val w by animateDpAsState(ui.d(if (i == page) 36 else 12), Tv.focus(), label = "dot")
                 Box(
                     Modifier
                         .size(w, ui.d(12))
