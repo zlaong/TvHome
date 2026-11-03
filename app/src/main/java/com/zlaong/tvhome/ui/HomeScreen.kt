@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.provider.Settings
 import android.view.KeyEvent as AKey
+import android.view.SoundEffectConstants
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -42,6 +43,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -65,6 +67,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit> = emptyFlow()) {
     val context = LocalContext.current
+    val view = LocalView.current
     val scope = rememberCoroutineScope()
     val nav = remember { Nav() }
     val focus = remember { FocusRequester() }
@@ -340,6 +343,27 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
         }
     }
 
+    // 焦点真的动了才响，到头了按不动就不响，和系统桌面一样；跟随系统「声音 → 按键音」开关
+    fun navSpot() = listOf(
+        nav.row, nav.top, nav.card, nav.media, nav.dr, nav.dc, nav.sheetIndex, nav.pickerIndex,
+        detail.row, detail.col, detail.panelIndex,
+    )
+
+    fun moveWithSound(dx: Int, dy: Int) {
+        val before = navSpot()
+        move(dx, dy)
+        if (navSpot() != before) {
+            view.playSoundEffect(
+                when {
+                    dx < 0 -> SoundEffectConstants.NAVIGATION_LEFT
+                    dx > 0 -> SoundEffectConstants.NAVIGATION_RIGHT
+                    dy < 0 -> SoundEffectConstants.NAVIGATION_UP
+                    else -> SoundEffectConstants.NAVIGATION_DOWN
+                }
+            )
+        }
+    }
+
     val keys = remember { KeyState() }
 
     HomeContent(
@@ -355,17 +379,17 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
                 val down = e.type == KeyEventType.KeyDown
                 val up = e.type == KeyEventType.KeyUp
                 when (code) {
-                    AKey.KEYCODE_DPAD_LEFT -> { if (down) move(-1, 0); true }
-                    AKey.KEYCODE_DPAD_RIGHT -> { if (down) move(1, 0); true }
-                    AKey.KEYCODE_DPAD_UP -> { if (down) move(0, -1); true }
-                    AKey.KEYCODE_DPAD_DOWN -> { if (down) move(0, 1); true }
+                    AKey.KEYCODE_DPAD_LEFT -> { if (down) moveWithSound(-1, 0); true }
+                    AKey.KEYCODE_DPAD_RIGHT -> { if (down) moveWithSound(1, 0); true }
+                    AKey.KEYCODE_DPAD_UP -> { if (down) moveWithSound(0, -1); true }
+                    AKey.KEYCODE_DPAD_DOWN -> { if (down) moveWithSound(0, 1); true }
                     AKey.KEYCODE_DPAD_CENTER, AKey.KEYCODE_ENTER, AKey.KEYCODE_NUMPAD_ENTER -> {
                         // 短按松手才触发；按住不放约半秒算长按（弹菜单），松手不再打开
                         val repeat = e.nativeKeyEvent.repeatCount
                         if (down && repeat == 0) { keys.okDown = true; keys.longFired = false }
-                        if (down && repeat == 1 && keys.okDown && !keys.longFired) { keys.longFired = true; longPress() }
+                        if (down && repeat == 1 && keys.okDown && !keys.longFired) { keys.longFired = true; view.playSoundEffect(SoundEffectConstants.CLICK); longPress() }
                         if (up) {
-                            if (keys.okDown && !keys.longFired) ok()
+                            if (keys.okDown && !keys.longFired) { view.playSoundEffect(SoundEffectConstants.CLICK); ok() }
                             keys.okDown = false
                         }
                         true
