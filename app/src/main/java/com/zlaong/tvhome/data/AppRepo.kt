@@ -16,8 +16,8 @@ data class InstalledApp(
     val intent: Intent,
     /** 是否为影视类 APP */
     val isVideo: Boolean = false,
-    /** 是否为直播类 APP（我的电视、电视家等），抽屉里单独成组 */
-    val isLive: Boolean = false,
+    /** 用户自己装的（非系统预装），长按菜单里才给「卸载」 */
+    val removable: Boolean = false,
 ) {
     /** 第一次用到时转成位图并缓存，抽屉每次展开不再重复转换 */
     val bannerBitmap: Bitmap? by lazy {
@@ -109,7 +109,7 @@ object AppRepo {
                     banner = banner,
                     intent = intent,
                     isVideo = isVideoApp(pkg, label),
-                    isLive = isLiveApp(pkg, label),
+                    removable = (activityInfo.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0,
                 )
             )
         }
@@ -129,19 +129,6 @@ object AppRepo {
                 { it.label },
             )
         )
-    }
-
-    private val LIVE_PACKAGES = setOf(
-        "top.yogiczy.mytv.tv", "top.yogiczy.mytv",
-        "com.lizongying.mytv0", "com.lizongying.mytv",
-        "com.dianshijia.newlive", "com.elinkway.tvlive2",
-    )
-    private val LIVE_KEYWORDS = listOf("直播", "电视家", "我的电视", "IPTV")
-
-    private fun isLiveApp(pkg: String, label: String): Boolean {
-        if (pkg in LIVE_PACKAGES) return true
-        if (pkg.startsWith("com.sony.")) return false
-        return LIVE_KEYWORDS.any { label.contains(it, ignoreCase = true) }
     }
 
     /** 列表加载完在后台线程把图都转好，避免首次滚动卡顿 */

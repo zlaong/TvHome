@@ -109,12 +109,12 @@ fun Modifier.frosted(shape: Shape, tint: Color): Modifier = composed {
 }
 
 /** 焦点白圈，画在卡片外侧；要放在 clip 之前 */
-fun Modifier.focusRing(alpha: Float, radius: Dp, width: Dp): Modifier = drawWithContent {
+fun Modifier.focusRing(alpha: Float, radius: Dp, width: Dp, color: Color = Color.White): Modifier = drawWithContent {
     drawContent()
     if (alpha > 0.01f) {
         val w = width.toPx()
         drawRoundRect(
-            color = Color.White.copy(alpha = alpha),
+            color = color.copy(alpha = alpha),
             topLeft = Offset(-w / 2, -w / 2),
             size = Size(size.width + w, size.height + w),
             cornerRadius = CornerRadius(radius.toPx() + w / 2),

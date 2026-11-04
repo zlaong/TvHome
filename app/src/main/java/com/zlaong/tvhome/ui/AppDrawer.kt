@@ -1,9 +1,8 @@
 package com.zlaong.tvhome.ui
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -14,14 +13,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -29,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,16 +32,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -57,8 +51,14 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.zlaong.tvhome.data.InstalledApp
 import kotlin.math.roundToInt
+
+/** 顶栏下沿（屏幕坐标）：抽屉内容在这里裁掉，滚动时不会从顶栏图标底下穿过 */
+private const val CLIP_TOP = 112
+/** 裁切线到第一个分组标题的距离，也是焦点放大、白圈离裁切线的最小余量 */
+private const val CONTENT_TOP = 24
+private const val TILE_W = 264
+private const val TILE_H = 148
 
 /**
  * 全部应用抽屉：首页按「下」从底部升起，盖满全屏（顶栏留在上面）。
@@ -71,6 +71,7 @@ fun AppDrawer(
     expanded: Boolean,
     focusRow: Int,
     focusCol: Int,
+    moving: Boolean,
     onTap: (row: Int, col: Int) -> Unit,
 ) {
     val ui = LocalUi.current
@@ -82,7 +83,7 @@ fun AppDrawer(
     val scroll = rememberScrollState()
     val groupY = remember { mutableStateMapOf<Int, Float>() }
     val rowY = remember { mutableStateMapOf<Int, Pair<Float, Float>>() }
-    val topPad = ui.px(136, density)
+    val topPad = ui.px(CONTENT_TOP, density)
     val bottomPad = ui.px(96, density)
 
     LaunchedEffect(focusRow, expanded) {
@@ -93,17 +94,16 @@ fun AppDrawer(
         val r = rows.getOrNull(focusRow) ?: return@LaunchedEffect
         val (ry, rh) = rowY[focusRow] ?: return@LaunchedEffect
         val gy = groupY[r.group] ?: return@LaunchedEffect
-        val top = if (r.first) gy else gy + ry
-        val bottom = gy + ry + rh
-        val viewTop = scroll.value + topPad
-        val viewBottom = scroll.value + scroll.viewportSize - bottomPad
+        // 换算成滚动内容里的坐标；分组第一行连标题一起露出来
+        val top = topPad + if (r.first) gy else gy + ry
+        val bottom = topPad + gy + ry + rh
         val target = when {
             focusRow == 0 -> 0f
-            top < viewTop -> top - topPad
-            bottom > viewBottom -> bottom - scroll.viewportSize + bottomPad
+            top < scroll.value + topPad -> top - topPad
+            bottom > scroll.value + scroll.viewportSize - bottomPad -> bottom + bottomPad - scroll.viewportSize
             else -> return@LaunchedEffect
         }
-        val dest = target.roundToInt().coerceAtLeast(0)
+        val dest = target.roundToInt().coerceIn(0, scroll.maxValue)
         // 跨屏的移动直接跳到位，一行一行挪才用短动画，连按遥控器时列表才跟得上焦点
         if (kotlin.math.abs(dest - scroll.value) > scroll.viewportSize) {
             scroll.scrollTo(dest)
@@ -112,7 +112,9 @@ fun AppDrawer(
         }
     }
 
-    val shape = RoundedCornerShape(topStart = ui.d(32), topEnd = ui.d(32))
+    // 升起过程中保留圆角，快到顶时再收成直角，展开后顶部不留圆角和描边
+    val corner = ((1f - open) / 0.15f).coerceIn(0f, 1f)
+    val shape = RoundedCornerShape(topStart = ui.d(32) * corner, topEnd = ui.d(32) * corner)
     Box(
         Modifier
             .zIndex(4f)
@@ -133,158 +135,144 @@ fun AppDrawer(
                     )
                 }
                 drawRect(Color(0xFF0C1018).copy(alpha = 0.6f))
-                val r = ui.px(32, density)
-                drawRoundRect(
-                    Color.White.copy(alpha = 0.12f),
-                    size = Size(size.width, size.height + r),
-                    cornerRadius = CornerRadius(r),
-                    style = Stroke(1.dp.toPx()),
-                )
+                if (corner > 0.01f) {
+                    val r = ui.px(32, density) * corner
+                    drawRoundRect(
+                        Color.White.copy(alpha = 0.12f * corner),
+                        size = Size(size.width, size.height + r),
+                        cornerRadius = CornerRadius(r),
+                        style = Stroke(1.dp.toPx()),
+                    )
+                }
             }
     ) {
-        Column(
+        Box(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(scroll, enabled = false)
-                .padding(start = ui.d(96), end = ui.d(96), top = ui.d(136), bottom = ui.d(96))
+                .padding(top = ui.d(CLIP_TOP))
+                .clipToBounds()
         ) {
-            groups.forEachIndexed { gi, g ->
-                val groupRows = rows.withIndex().filter { it.value.group == gi }
-                val show by animateFloatAsState(
-                    if (expanded) 1f else 0f,
-                    if (expanded) tween(Tv.MOVE, delayMillis = 60 * (gi + 1), easing = Tv.easeOut) else snap(),
-                    label = "group",
-                )
-                Column(
-                    Modifier
-                        .padding(bottom = ui.d(28))
-                        .onGloballyPositioned { groupY[gi] = it.positionInParent().y }
-                        .graphicsLayer {
-                            alpha = show
-                            translationY = (1f - show) * ui.px(24, density)
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scroll, enabled = false)
+                    .padding(start = ui.d(96), end = ui.d(96), top = ui.d(CONTENT_TOP), bottom = ui.d(96))
+            ) {
+                groups.forEachIndexed { gi, g ->
+                    key(g.title) {
+                        val groupRows = rows.withIndex().filter { it.value.group == gi }
+                        // 展开时分组依次浮现；收起时跟着面板一起淡出，不再瞬间消失
+                        val show = remember { Animatable(0f) }
+                        LaunchedEffect(expanded) {
+                            if (expanded) show.animateTo(1f, tween(Tv.MOVE, delayMillis = 50 * gi, easing = Tv.easeOut))
+                            else show.animateTo(0f, tween(Tv.MOVE / 2, easing = Tv.easeOut))
                         }
-                ) {
-                    Text(
-                        g.title,
-                        fontSize = ui.t(24),
-                        color = Tv.text2,
-                        modifier = Modifier.height(ui.d(32)),
-                    )
-                    Spacer(Modifier.height(ui.d(12)))
-                    groupRows.forEach { (ri, row) ->
-                        Row(
+                        Column(
                             Modifier
-                                .padding(bottom = ui.d(8))
-                                .onGloballyPositioned { rowY[ri] = it.positionInParent().y to it.size.height.toFloat() },
-                            horizontalArrangement = Arrangement.spacedBy(ui.d(28)),
+                                .padding(bottom = ui.d(28))
+                                .onGloballyPositioned { groupY[gi] = it.positionInParent().y }
+                                .graphicsLayer {
+                                    // 默认的半透明会先画进一张和分组一样大的离屏图，
+                                    // 选中格子放大后超出分组的那圈（白框、阴影）被裁掉，淡入结束才露出来。
+                                    // 逐个元素乘透明度：不裁切，也省一张离屏图
+                                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                                    alpha = show.value
+                                    translationY = (1f - show.value) * ui.px(24, density)
+                                }
                         ) {
-                            row.tiles.forEachIndexed { ci, tile ->
-                                TileView(tile, expanded && ri == focusRow && ci == focusCol) { onTap(ri, ci) }
+                            Text(
+                                g.title,
+                                fontSize = ui.t(24),
+                                color = Tv.text2,
+                                modifier = Modifier.height(ui.d(32)),
+                            )
+                            Spacer(Modifier.height(ui.d(14)))
+                            groupRows.forEach { (ri, row) ->
+                                Row(
+                                    Modifier
+                                        .padding(bottom = ui.d(14))
+                                        .onGloballyPositioned { rowY[ri] = it.positionInParent().y to it.size.height.toFloat() },
+                                    horizontalArrangement = Arrangement.spacedBy(ui.d(28)),
+                                ) {
+                                    row.tiles.forEachIndexed { ci, tile ->
+                                        val focused = expanded && ri == focusRow && ci == focusCol
+                                        TileView(tile, focused, lifted = focused && moving) { onTap(ri, ci) }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
         }
+
+        if (moving) MoveHint("方向键挪位置 · 确认键放下 · 返回键取消", Modifier.align(Alignment.BottomCenter).padding(bottom = ui.d(32)))
     }
 }
 
+/** lifted：正在挪位置，放得更大、换黄色描边，和普通选中区分开 */
 @Composable
-private fun TileView(tile: Tile, focused: Boolean, onTap: () -> Unit) {
+private fun TileView(tile: Tile, focused: Boolean, lifted: Boolean, onTap: () -> Unit) {
     val ui = LocalUi.current
-    val scale by animateFloatAsState(if (focused) 1.08f else 1f, Tv.focus(), label = "tile")
+    val scale by animateFloatAsState(
+        when {
+            lifted -> 1.1f
+            focused -> 1.08f
+            else -> 1f
+        },
+        Tv.focus(),
+        label = "tile",
+    )
     val ring by animateFloatAsState(if (focused) 1f else 0f, Tv.focus(), label = "tileRing")
-    val sheen by rememberSheen(focused)
+    val sheen by rememberSheen(focused && !lifted)
     val shape = RoundedCornerShape(ui.d(14))
-    val isAdd = tile is Tile.Add
 
-    Column(verticalArrangement = Arrangement.spacedBy(ui.d(8))) {
+    Column(verticalArrangement = Arrangement.spacedBy(ui.d(10))) {
         Box(
             Modifier
                 .graphicsLayer { scaleX = scale; scaleY = scale }
-                .focusRing(ring, ui.d(14), ui.d(5))
-                .then(if (!isAdd) Modifier.shadow(ui.d(if (focused) 24 else 10), shape, clip = false) else Modifier)
-                .size(ui.d(240), ui.d(135))
+                .focusRing(ring, ui.d(14), ui.d(5), if (lifted) Tv.busy else Color.White)
+                .shadow(ui.d(if (focused) 24 else 10), shape, clip = false)
+                .size(ui.d(TILE_W), ui.d(TILE_H))
                 .clip(shape)
-                .then(tileBackground(tile))
+                .background(BrandColor.of(tile.app))
                 .sheen(sheen)
                 .tap(onTap),
             contentAlignment = Alignment.Center,
         ) {
-            when (tile) {
-                is Tile.App -> AppThumbContent(tile.app, small = true)
-                is Tile.Source -> SourceContent(tile)
-                Tile.Add -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(TvIcon.Plus, ui.d(28), Tv.text2)
-                    Spacer(Modifier.width(ui.d(8)))
-                    Text("添加", fontSize = ui.t(24), color = Tv.text2)
-                }
-            }
+            AppThumbContent(tile.app, small = true)
         }
+        // 名字一直显示（不然只有图标的应用认不出来），选中时更亮
         Text(
-            if (isAdd) "" else tile.name,
+            tile.name,
             fontSize = ui.t(20),
             color = Tv.text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
-                .width(ui.d(240))
+                .width(ui.d(TILE_W))
                 .height(ui.d(30))
-                .graphicsLayer { alpha = ring },
-        )
-    }
-}
-
-@Composable
-private fun tileBackground(tile: Tile): Modifier {
-    val ui = LocalUi.current
-    val density = LocalDensity.current.density
-    return when (tile) {
-        is Tile.App -> Modifier.background(BrandColor.of(tile.app))
-        is Tile.Source -> Modifier.background(
-            if (tile.source.isPlayStation) Brush.linearGradient(listOf(Color(0xFF0070D1), Color(0xFF003791)))
-            else Brush.linearGradient(listOf(Color(0xFF3A4252), Color(0xFF1C212B)))
-        )
-        Tile.Add -> Modifier
-            .background(Color.White.copy(alpha = 0.06f))
-            .drawBehind {
-                val w = ui.px(2, density)
-                val r = ui.px(14, density)
-                drawRoundRect(
-                    Color.White.copy(alpha = 0.35f),
-                    topLeft = Offset(w / 2, w / 2),
-                    size = Size(size.width - w, size.height - w),
-                    cornerRadius = CornerRadius(r - w / 2),
-                    style = Stroke(w, pathEffect = PathEffect.dashPathEffect(floatArrayOf(w * 3, w * 3))),
-                )
-            }
-    }
-}
-
-@Composable
-private fun SourceContent(tile: Tile.Source) {
-    val ui = LocalUi.current
-    Box(Modifier.fillMaxSize()) {
-        Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (tile.source.isPlayStation) TvIcon.Gamepad else TvIcon.Hdmi, ui.d(48), Color.White)
-            Spacer(Modifier.width(ui.d(14)))
-            Text(tile.source.name, fontSize = ui.t(34), fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
-        }
-        Text(
-            tile.source.port,
-            fontSize = ui.t(16),
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(ui.d(10))
-                .background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(50))
-                .padding(horizontal = ui.d(10), vertical = ui.d(2)),
+                .graphicsLayer { alpha = 0.6f + 0.4f * ring },
         )
     }
 }
 
 // ------------------------------------------------------------------ 弹层
+
+/** 挪位置时的黄色提示条，首页影视行和抽屉共用 */
+@Composable
+fun MoveHint(text: String, modifier: Modifier = Modifier) {
+    val ui = LocalUi.current
+    Text(
+        text,
+        fontSize = ui.t(22),
+        color = Tv.dark,
+        modifier = modifier
+            .zIndex(6f)
+            .background(Tv.busy, RoundedCornerShape(50))
+            .padding(horizontal = ui.d(28), vertical = ui.d(12)),
+    )
+}
 
 @Composable
 internal fun Scrim(content: @Composable () -> Unit) {
@@ -338,61 +326,6 @@ fun SheetOverlay(sheet: Sheet, index: Int) {
             Spacer(Modifier.height(ui.d(8)))
             sheet.actions.forEachIndexed { i, (label, action) -> SheetButton(label, i == index, action) }
         }
-    }
-}
-
-/** 「常用」里点「添加」：列出还没加进来的应用 */
-@Composable
-fun PickerOverlay(apps: List<InstalledApp>, index: Int, onPick: (Int) -> Unit) {
-    val ui = LocalUi.current
-    val list = rememberLazyListState()
-    LaunchedEffect(index) {
-        val vis = list.layoutInfo.visibleItemsInfo
-        if (vis.isEmpty()) return@LaunchedEffect
-        if (index <= vis.first().index || index >= vis.last().index) {
-            list.animateScrollToItem((index - 2).coerceAtLeast(0))
-        }
-    }
-    Scrim {
-        Panel(900) {
-            Text("加到「常用」", fontSize = ui.t(30), fontWeight = FontWeight.SemiBold, color = Tv.text)
-            Text("确认键加入 · 返回键关闭", fontSize = ui.t(20), color = Tv.text3)
-            Spacer(Modifier.height(ui.d(8)))
-            if (apps.isEmpty()) {
-                Text("所有应用都已经在「常用」里了", fontSize = ui.t(24), color = Tv.text2)
-            } else {
-                LazyColumn(
-                    state = list,
-                    modifier = Modifier.heightIn(max = ui.d(600)),
-                    verticalArrangement = Arrangement.spacedBy(ui.d(8)),
-                    userScrollEnabled = false,
-                ) {
-                    itemsIndexed(apps, key = { _, a -> a.packageName }) { i, app ->
-                        PickerRow(app, i == index) { onPick(i) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PickerRow(app: InstalledApp, focused: Boolean, onTap: () -> Unit) {
-    val ui = LocalUi.current
-    val shape = RoundedCornerShape(ui.d(16))
-    val icon = remember(app.packageName) { app.iconBitmap?.asImageBitmap() }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(ui.d(88))
-            .background(if (focused) Color.White else Color.White.copy(alpha = 0.04f), shape)
-            .tap(onTap)
-            .padding(horizontal = ui.d(24)),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (icon != null) Image(icon, null, Modifier.size(ui.d(48))) else Spacer(Modifier.size(ui.d(48)))
-        Spacer(Modifier.width(ui.d(20)))
-        Text(app.label, fontSize = ui.t(26), color = if (focused) Tv.dark else Tv.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

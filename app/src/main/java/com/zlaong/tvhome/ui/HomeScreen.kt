@@ -54,9 +54,8 @@ import com.zlaong.tvhome.data.AppSettings
 import com.zlaong.tvhome.data.CastRepo
 import com.zlaong.tvhome.data.Feeds
 import com.zlaong.tvhome.data.WallpaperRepo
-import com.zlaong.tvhome.data.HdmiSource
-import com.zlaong.tvhome.data.InputRepo
 import com.zlaong.tvhome.data.InstalledApp
+import com.zlaong.tvhome.data.RunningApps
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -79,7 +78,8 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var net by remember { mutableStateOf(Net.Wifi) }
     var resumed by remember { mutableIntStateOf(0) }
-    val pinned by AppSettings.pinned.collectAsState()
+    val appOrder by AppSettings.appOrder.collectAsState()
+    val mediaOrder by AppSettings.mediaOrder.collectAsState()
     val lastVideo by AppSettings.lastVideo.collectAsState()
 
     val wallpaperVer by WallpaperRepo.version.collectAsState()
@@ -87,36 +87,42 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
         value = withContext(Dispatchers.Default) { Wallpaper.load(context) }
     }
 
-    // 每次回到桌面都重新扫一遍：装/卸了应用、HDMI 设备开关机都能及时反映
+    // 每次回到桌面都重新扫一遍：装/卸了应用能及时反映
     LifecycleResumeEffect(Unit) {
         resumed++
         runCatching { focus.requestFocus() }
-        // 每日壁纸：过了零点回到桌面就换今天的
-        scope.launch { WallpaperRepo.refreshDaily() }
-        onPauseOrDispose { }
+        // 每日壁纸：回到桌面查一次；一直停在桌面（电视常开）也每半小时查一次，过了零点就换
+        val job = scope.launch {
+            while (true) {
+                WallpaperRepo.refreshDaily()
+                delay(30 * 60_000L)
+            }
+        }
+        onPauseOrDispose { job.cancel() }
+    }
+
+    // 首页影视应用下面的小点：还在后台没退出的。停在首页时每 5 秒查一次（读一次几十毫秒）
+    var running by remember { mutableStateOf(emptySet<String>()) }
+    LifecycleResumeEffect(Unit) {
+        val job = scope.launch {
+            while (true) {
+                running = RunningApps.load()
+                delay(5_000)
+            }
+        }
+        onPauseOrDispose { job.cancel() }
     }
 
     var apps by remember { mutableStateOf(emptyList<InstalledApp>()) }
-    var sources by remember { mutableStateOf(emptyList<HdmiSource>()) }
     var appsLoaded by remember { mutableStateOf(false) }
     LaunchedEffect(resumed) {
-        val (a, s) = withContext(Dispatchers.IO) {
+        apps = withContext(Dispatchers.IO) {
             val real = runCatching { AppRepo.loadApps(context) }.getOrDefault(emptyList())
             val all = if (BuildConfig.DEBUG && AppSettings.demoVideoApps) DemoData.videoApps(context) + real else real
             AppRepo.warmBitmaps(all)
-            all to runCatching { InputRepo.load(context) }.getOrDefault(emptyList())
+            all
         }
-        apps = a
-        sources = s
         appsLoaded = true
-    }
-
-    // 第一次装好：「常用」先放几个默认的（装了才放），之后完全以用户的选择为准
-    LaunchedEffect(apps, pinned) {
-        if (pinned == null && apps.isNotEmpty()) {
-            val installed = apps.map { it.packageName }.toSet()
-            AppSettings.setPinned(DEFAULT_PINNED.filter { it in installed })
-        }
     }
 
     // 卡片全屏页（天气 / 米家）
@@ -158,10 +164,14 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
         }
     }
 
-    val pinnedList = pinned.orEmpty()
-    val groups = remember(apps, sources, pinnedList) { buildGroups(apps, sources, pinnedList) }
+    // 挪位置时按临时顺序实时显示，确认后才写进设置。首页影视行和抽屉各有各的顺序
+    val movingMedia = nav.moving != null && nav.row == Area.MEDIA
+    val order = if (nav.moving != null && !movingMedia) nav.moveOrder else appOrder
+    val groups = remember(apps, order) { buildGroups(apps, order) }
     val rows = remember(groups) { drawerRows(groups) }
-    val media = remember(apps) { apps.filter { it.isVideo } }
+    val videoApps = remember(apps) { apps.filter { it.isVideo } }
+    val mOrder = if (movingMedia) nav.moveOrder else mediaOrder
+    val media = remember(videoApps, mOrder) { sortApps(videoApps, mOrder) }
     val printerView = if (BuildConfig.DEBUG && AppSettings.demoVideoApps && !printer.reachable) DemoData.printer() else printer
 
     val data = HomeData(
@@ -172,6 +182,7 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
         net = net,
         media = media,
         lastVideo = lastVideo,
+        running = running,
         groups = groups,
         printerHost = config.printerHost,
         homeHost = if (config.useHa) config.haUrlOrDefault else config.homeHostOrDefault,
@@ -199,14 +210,71 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
 
     fun launch(app: InstalledApp) = start(app.intent, app.label)
 
-    fun pin(pkg: String) {
-        AppSettings.setPinned(pinnedList.filter { it != pkg } + pkg)
-        nav.toast("已加到「常用」")
+    fun openDrawer() {
+        nav.row = Area.DRAWER; nav.expanded = true; nav.dr = 0; nav.dc = 0; nav.dcWant = 0
     }
 
-    fun unpin(pkg: String) {
-        AppSettings.setPinned(pinnedList.filter { it != pkg })
-        nav.toast("已从「常用」移除")
+    fun orderedPkgs(order: List<String>) = sortApps(apps, order).map { it.packageName }
+
+    /** 顺序变了以后，焦点跟着这个应用走 */
+    fun focusOn(pkg: String, order: List<String>) {
+        val (r, c) = locate(drawerRows(buildGroups(apps, order)), pkg) ?: return
+        nav.dr = r; nav.dc = c; nav.dcWant = c
+    }
+
+    fun startMove(pkg: String) {
+        nav.moveOrder = orderedPkgs(appOrder)
+        nav.moving = pkg
+    }
+
+    // 首页影视行：长按直接拿起来，左右挪，确认放下，返回取消
+    fun startMediaMove(i: Int) {
+        val app = media.getOrNull(i) ?: return
+        nav.moveOrder = media.map { it.packageName }
+        nav.moving = app.packageName
+    }
+
+    fun moveMedia(dx: Int) {
+        val pkg = nav.moving ?: return
+        val list = nav.moveOrder
+        val i = list.indexOf(pkg).takeIf { it >= 0 } ?: return
+        val to = i + dx
+        if (dx == 0 || to !in list.indices) return
+        nav.moveOrder = list.moved(pkg, to)
+        nav.media = to
+    }
+
+    fun endMediaMove(save: Boolean) {
+        val pkg = nav.moving ?: return
+        if (save) {
+            AppSettings.setMediaOrder(nav.moveOrder)
+        } else {
+            nav.media = sortApps(videoApps, mediaOrder).indexOfFirst { it.packageName == pkg }.coerceAtLeast(0)
+        }
+        nav.moving = null
+    }
+
+    fun moveTile(dx: Int, dy: Int) {
+        val pkg = nav.moving ?: return
+        val list = nav.moveOrder
+        val i = list.indexOf(pkg).takeIf { it >= 0 } ?: return
+        val to = i + dx + dy * DRAWER_COLS
+        if (to !in list.indices) return
+        nav.moveOrder = list.moved(pkg, to)
+        focusOn(pkg, nav.moveOrder)
+    }
+
+    fun endMove(save: Boolean) {
+        val pkg = nav.moving ?: return
+        if (save) AppSettings.setAppOrder(nav.moveOrder) else focusOn(pkg, appOrder)
+        nav.moving = null
+    }
+
+    fun moveToFront(pkg: String) {
+        val list = orderedPkgs(appOrder).moved(pkg, 0)
+        AppSettings.setAppOrder(list)
+        focusOn(pkg, list)
+        nav.toast("已移到最前")
     }
 
     fun openChip(id: ChipId) = when (id) {
@@ -218,22 +286,12 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
         ChipId.Home -> { nav.card = CARD_PAGES.indexOf(CardPage.Home).coerceAtLeast(0); nav.row = Area.CARD }
     }
 
-    fun openTile(tile: Tile) {
-        when (tile) {
-            is Tile.Source -> if (!InputRepo.launch(context, tile.source)) nav.toast("切换到 ${tile.source.name} 失败")
-            is Tile.App -> launch(tile.app)
-            Tile.Add -> {
-                val set = pinnedList.toSet()
-                nav.picker = apps.filter { it.packageName !in set }.sortedBy { it.label }
-                nav.pickerIndex = 0
-            }
-        }
-    }
+    fun openTile(tile: Tile) = launch(tile.app)
 
     fun openMedia(i: Int) {
         val app = media.getOrNull(i)
         if (app == null) {
-            nav.row = Area.DRAWER; nav.expanded = true; nav.dr = 0; nav.dc = 0
+            openDrawer()
             return
         }
         AppSettings.setLastVideo(app.packageName)
@@ -241,16 +299,17 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
     }
 
     fun sheetFor(tile: Tile) {
-        val t = tile as? Tile.App ?: return
-        val app = t.app
+        val app = tile.app
+        val pkg = app.packageName
         fun close(block: () -> Unit): () -> Unit = { nav.sheet = null; block() }
         val actions = buildList {
             add("打开" to close { launch(app) })
-            if (t.pinned) add("从「常用」移除" to close { unpin(app.packageName) })
-            else add("加到「常用」" to close { pin(app.packageName) })
+            add("移动位置" to close { startMove(pkg) })
+            if (orderedPkgs(appOrder).firstOrNull() != pkg) add("移到最前" to close { moveToFront(pkg) })
             add("应用信息" to close {
-                start(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}")), "应用信息")
+                start(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$pkg")), "应用信息")
             })
+            if (app.removable) add("卸载" to close { start(Intent(Intent.ACTION_DELETE, Uri.parse("package:$pkg")), "卸载") })
             add("取消" to close { })
         }
         nav.sheet = Sheet(app.label, actions)
@@ -262,10 +321,7 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
     fun move(dx: Int, dy: Int) {
         if (nav.castQr) return
         if (detail.page != null) { detail.move(home, dx, dy); return }
-        nav.picker?.let { list ->
-            nav.pickerIndex = (nav.pickerIndex + dy).coerceIn(0, (list.size - 1).coerceAtLeast(0))
-            return
-        }
+        if (nav.moving != null) { if (movingMedia) moveMedia(dx) else moveTile(dx, dy); return }
         nav.sheet?.let { s ->
             nav.sheetIndex = (nav.sheetIndex + dy).coerceIn(0, s.actions.lastIndex)
             return
@@ -276,26 +332,36 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
                 dy > 0 -> nav.row = Area.CARD
             }
             Area.CARD -> when {
-                dx != 0 -> nav.card = (nav.card + dx + CARD_PAGES.size) % CARD_PAGES.size
+                // 平铺成一排了，到头就停，不再绕回第一张
+                dx != 0 -> nav.card = (nav.card + dx).coerceIn(0, CARD_PAGES.lastIndex)
                 dy < 0 -> nav.row = Area.TOP
                 dy > 0 -> nav.row = Area.MEDIA
             }
             Area.MEDIA -> when {
                 dx != 0 -> nav.media = (nav.media + dx).coerceIn(0, (media.size - 1).coerceAtLeast(0))
                 dy < 0 -> nav.row = Area.CARD
-                dy > 0 && rows.isNotEmpty() -> {
-                    nav.row = Area.DRAWER; nav.expanded = true; nav.dr = 0; nav.dc = 0
-                }
+                dy > 0 && rows.isNotEmpty() -> openDrawer()
             }
             else -> {
                 val row = rows.getOrNull(nav.dr) ?: return
                 when {
-                    dx != 0 -> nav.dc = (nav.dc + dx).coerceIn(0, row.tiles.lastIndex)
+                    // 行尾按「右」接到下一行开头，行首按「左」回到上一行末尾（同一分组内）
+                    dx > 0 && nav.dc == row.tiles.lastIndex -> {
+                        val next = rows.getOrNull(nav.dr + 1)
+                        if (next != null && next.group == row.group) { nav.dr++; nav.dc = 0 }
+                        nav.dcWant = nav.dc
+                    }
+                    dx < 0 && nav.dc == 0 -> {
+                        val prev = rows.getOrNull(nav.dr - 1)
+                        if (prev != null && prev.group == row.group) { nav.dr--; nav.dc = prev.tiles.lastIndex }
+                        nav.dcWant = nav.dc
+                    }
+                    dx != 0 -> { nav.dc += dx; nav.dcWant = nav.dc }
                     dy > 0 && nav.dr < rows.lastIndex -> {
-                        nav.dr++; nav.dc = nav.dc.coerceAtMost(rows[nav.dr].tiles.lastIndex)
+                        nav.dr++; nav.dc = nav.dcWant.coerceAtMost(rows[nav.dr].tiles.lastIndex)
                     }
                     dy < 0 && nav.dr > 0 -> {
-                        nav.dr--; nav.dc = nav.dc.coerceAtMost(rows[nav.dr].tiles.lastIndex)
+                        nav.dr--; nav.dc = nav.dcWant.coerceAtMost(rows[nav.dr].tiles.lastIndex)
                     }
                     dy < 0 -> { nav.row = Area.MEDIA; nav.expanded = false }
                 }
@@ -306,11 +372,7 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
     fun ok() {
         if (nav.castQr) { nav.castQr = false; return }
         if (detail.page != null) { detail.ok(home); return }
-        nav.picker?.let { list ->
-            list.getOrNull(nav.pickerIndex)?.let { pin(it.packageName) }
-            nav.picker = null
-            return
-        }
+        if (nav.moving != null) { if (movingMedia) endMediaMove(save = true) else endMove(save = true); return }
         nav.sheet?.let { s -> s.actions.getOrNull(nav.sheetIndex)?.second?.invoke(); return }
         when (nav.row) {
             Area.TOP -> openChip(TOP_CHIPS[nav.top])
@@ -325,10 +387,11 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
     }
 
     fun longPress() {
-        if (nav.picker != null || nav.sheet != null || nav.castQr) return
+        if (nav.moving != null || nav.sheet != null || nav.castQr) return
         if (detail.page != null) { detail.longPress(home); return }
         when (nav.row) {
             Area.TOP -> if (TOP_CHIPS[nav.top] == ChipId.Settings) start(Intent(Settings.ACTION_SETTINGS), "系统设置")
+            Area.MEDIA -> startMediaMove(nav.media)
             Area.DRAWER -> rows.getOrNull(nav.dr)?.tiles?.getOrNull(nav.dc)?.let(::sheetFor)
         }
     }
@@ -337,15 +400,17 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
         when {
             nav.castQr -> nav.castQr = false
             detail.page != null -> detail.back()
-            nav.picker != null -> nav.picker = null
+            nav.moving != null -> if (movingMedia) endMediaMove(save = false) else endMove(save = false)
             nav.sheet != null -> nav.sheet = null
+            // 抽屉滚到下面时，返回键先回到第一格，再按一次才收起
+            nav.row == Area.DRAWER && nav.dr > 0 -> { nav.dr = 0; nav.dc = 0; nav.dcWant = 0 }
             else -> { nav.row = Area.MEDIA; nav.expanded = false }
         }
     }
 
     // 焦点真的动了才响，到头了按不动就不响，和系统桌面一样；跟随系统「声音 → 按键音」开关
     fun navSpot() = listOf(
-        nav.row, nav.top, nav.card, nav.media, nav.dr, nav.dc, nav.sheetIndex, nav.pickerIndex,
+        nav.row, nav.top, nav.card, nav.media, nav.dr, nav.dc, nav.sheetIndex,
         detail.row, detail.col, detail.panelIndex,
     )
 
@@ -404,10 +469,18 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
                 }
             },
         onChip = { id -> nav.row = Area.TOP; nav.top = TOP_CHIPS.indexOf(id); openChip(id) },
-        onCard = { if (nav.row == Area.CARD) ok() else nav.row = Area.CARD },
-        onMedia = { i -> nav.row = Area.MEDIA; nav.media = i; openMedia(i) },
-        onTile = { r, c -> nav.dr = r; nav.dc = c; rows.getOrNull(r)?.tiles?.getOrNull(c)?.let(::openTile) },
-        onPick = { i -> nav.pickerIndex = i; ok() },
+        onCard = { i ->
+            val same = nav.row == Area.CARD && nav.card == i
+            nav.row = Area.CARD; nav.card = i
+            if (same) ok()
+        },
+        onMedia = { i -> if (nav.moving == null) { nav.row = Area.MEDIA; nav.media = i; openMedia(i) } },
+        onTile = { r, c ->
+            if (nav.moving == null) {
+                nav.dr = r; nav.dc = c; nav.dcWant = c
+                rows.getOrNull(r)?.tiles?.getOrNull(c)?.let(::openTile)
+            }
+        },
         detail = detail,
     )
 
@@ -442,10 +515,9 @@ fun HomeContent(
     wallpaper: WallpaperImages?,
     modifier: Modifier = Modifier,
     onChip: (ChipId) -> Unit = {},
-    onCard: () -> Unit = {},
+    onCard: (Int) -> Unit = {},
     onMedia: (Int) -> Unit = {},
     onTile: (Int, Int) -> Unit = { _, _ -> },
-    onPick: (Int) -> Unit = {},
     detail: DetailCtl? = null,
 ) {
     BoxWithConstraints(modifier.fillMaxSize().then(if (wallpaper == null) Modifier.background(Color(0xFF0B0F18)) else Modifier)) {
@@ -474,21 +546,28 @@ fun HomeContent(
                 )
             }
 
+            val tiled = nav.row == Area.CARD && !nav.expanded
             Box(Modifier.padding(start = ui.d(96), top = ui.d(136))) {
-                InfoCard(data, nav.card, nav.row == Area.CARD && !nav.expanded, onCard)
+                InfoCard(data, nav.card, tiled, onCard)
             }
 
             MediaRow(
                 apps = data.media,
                 loaded = data.appsLoaded,
                 lastVideo = data.lastVideo,
+                running = data.running,
                 focusedIndex = nav.media,
                 rowFocused = nav.row == Area.MEDIA,
+                moving = nav.moving != null && nav.row == Area.MEDIA,
                 onTap = onMedia,
                 modifier = Modifier.align(Alignment.BottomStart).padding(bottom = ui.d(8)),
             )
 
-            AppDrawer(data.groups, rows, nav.expanded, nav.dr, nav.dc, onTile)
+            AppDrawer(data.groups, rows, nav.expanded, nav.dr, nav.dc, nav.moving != null && nav.row == Area.DRAWER, onTile)
+
+            if (nav.moving != null && nav.row == Area.MEDIA) {
+                MoveHint("左右键挪位置 · 确认键放下 · 返回键取消", Modifier.align(Alignment.BottomCenter).padding(bottom = ui.d(300)))
+            }
 
             Box(Modifier.zIndex(5f)) {
                 TopBar(data, if (nav.row == Area.TOP) TOP_CHIPS.getOrNull(nav.top) else null, onChip)
@@ -509,7 +588,6 @@ fun HomeContent(
             }
 
             nav.sheet?.let { SheetOverlay(it, nav.sheetIndex) }
-            nav.picker?.let { PickerOverlay(it, nav.pickerIndex, onPick) }
             if (nav.castQr) CastQrOverlay(data.webSetupUrl)
             ToastView(nav.toast)
         }

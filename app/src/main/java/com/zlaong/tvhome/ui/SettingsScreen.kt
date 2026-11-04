@@ -46,6 +46,7 @@ import com.zlaong.tvhome.BuildConfig
 import com.zlaong.tvhome.data.AppConfig
 import com.zlaong.tvhome.data.AppSettings
 import com.zlaong.tvhome.data.ConfigServer
+import com.zlaong.tvhome.data.DistrictRepo
 import com.zlaong.tvhome.data.WallpaperRepo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -176,7 +177,7 @@ private fun WeatherPanel(config: AppConfig) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         TvRow(
             "自动定位",
-            desc = "按家里网络的位置估算，精确到城市" + (config.autoCity.takeIf { it.isNotBlank() }?.let { "；当前：$it" } ?: ""),
+            desc = "按家里网络的位置估算，只能到城市，区在下面选" + (config.autoCity.takeIf { it.isNotBlank() }?.let { "；当前：$it" } ?: ""),
             checked = config.weatherAuto,
         ) { AppSettings.save(config.printerHost, config.cityName, weatherAuto = true) }
         TvRow("手动设置城市", desc = "定位不准时用", checked = !config.weatherAuto) {
@@ -189,9 +190,33 @@ private fun WeatherPanel(config: AppConfig) {
             label = "城市",
             value = city,
             onValueChange = { city = it },
-            hint = "例：杭州、上海、北京朝阳",
+            hint = "例：杭州、上海、北京（区在下面选）",
             onCommit = { if (city.isNotBlank()) AppSettings.save(AppSettings.state.value.printerHost, city) },
         )
+    }
+    DistrictPicker(config)
+}
+
+/** 城市太大时选到区：郊区和市中心最低温能差好几度 */
+@Composable
+private fun DistrictPicker(config: AppConfig) {
+    val cityName = config.weatherCity
+    if (cityName.isBlank()) return
+    // null = 正在查；空列表 = 查不到
+    val list by produceState<List<DistrictRepo.District>?>(null, cityName) {
+        value = DistrictRepo.districts(cityName).orEmpty()
+    }
+    val chosen = config.activeDistrict?.first
+    TvGroup("区县")
+    when {
+        list == null -> Text("正在查 $cityName 的区县…", fontSize = 14.sp, color = Palette.textSecondary)
+        list!!.isEmpty() -> Text("查不到 $cityName 的区县列表，先按城市中心显示", fontSize = 14.sp, color = Palette.textSecondary)
+        else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            TvRow("不选，用城市中心", checked = chosen == null) { AppSettings.saveDistrict(cityName, "", null, null) }
+            list!!.forEach { d ->
+                TvRow(d.name, checked = chosen == d.name) { AppSettings.saveDistrict(cityName, d.name, d.lat, d.lon) }
+            }
+        }
     }
 }
 

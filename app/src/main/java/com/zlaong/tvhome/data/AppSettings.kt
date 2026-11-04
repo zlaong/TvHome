@@ -34,7 +34,24 @@ data class AppConfig(
     val autoLat: Double? = null,
     val autoLon: Double? = null,
     val autoAt: Long = 0L,
+    /**
+     * 选的区县（例「顺义区」）和它的中心坐标；districtCity 记它属于哪个城市。
+     * 当前天气城市和 districtCity 对得上才用，换了城市自动退回城市中心，不会拿着顺义的坐标查杭州。
+     */
+    val district: String = "",
+    val districtCity: String = "",
+    val districtLat: Double? = null,
+    val districtLon: Double? = null,
 ) {
+    /** 天气现在用的城市：自动定位用查到的，手动用填的 */
+    val weatherCity: String get() = if (weatherAuto) autoCity else cityName
+
+    /** 当前城市下选好的区；没选或城市变了返回 null */
+    val activeDistrict: Triple<String, Double, Double>?
+        get() = if (district.isNotBlank() && districtLat != null && districtLon != null &&
+            DistrictRepo.sameCity(districtCity, weatherCity)
+        ) Triple(district, districtLat, districtLon) else null
+
     val homeHostOrDefault: String
         get() = homeHost.ifBlank { printerHost.substringBefore(":") + ":8080" }
 
@@ -57,7 +74,8 @@ object AppSettings {
     private const val K_LAT = "lat"
     private const val K_LON = "lon"
     private const val K_HOME = "home_host"
-    private const val K_PINNED = "pinned_apps"
+    private const val K_APP_ORDER = "app_order"
+    private const val K_MEDIA_ORDER = "media_order"
     private const val K_LAST_VIDEO = "last_video_app"
     private const val K_HA_URL = "ha_url"
     private const val K_HA_TOKEN = "ha_token"
@@ -69,6 +87,10 @@ object AppSettings {
     private const val K_AUTO_LAT = "auto_lat"
     private const val K_AUTO_LON = "auto_lon"
     private const val K_AUTO_AT = "auto_at"
+    private const val K_DISTRICT = "district"
+    private const val K_DISTRICT_CITY = "district_city"
+    private const val K_DISTRICT_LAT = "district_lat"
+    private const val K_DISTRICT_LON = "district_lon"
 
     private lateinit var prefs: android.content.SharedPreferences
 
@@ -101,20 +123,38 @@ object AppSettings {
             autoLat = prefs.getFloat(K_AUTO_LAT, Float.NaN).let { if (it.isNaN()) null else it.toDouble() },
             autoLon = prefs.getFloat(K_AUTO_LON, Float.NaN).let { if (it.isNaN()) null else it.toDouble() },
             autoAt = prefs.getLong(K_AUTO_AT, 0L),
+            district = prefs.getString(K_DISTRICT, null).orEmpty(),
+            districtCity = prefs.getString(K_DISTRICT_CITY, null).orEmpty(),
+            districtLat = prefs.getFloat(K_DISTRICT_LAT, Float.NaN).let { if (it.isNaN()) null else it.toDouble() },
+            districtLon = prefs.getFloat(K_DISTRICT_LON, Float.NaN).let { if (it.isNaN()) null else it.toDouble() },
         )
-        _pinned.value = prefs.getString(K_PINNED, null)?.split(',')?.filter { it.isNotBlank() }
+        _appOrder.value = prefs.getString(K_APP_ORDER, null)?.split(',')?.filter { it.isNotBlank() }.orEmpty()
+        _mediaOrder.value = prefs.getString(K_MEDIA_ORDER, null)?.split(',')?.filter { it.isNotBlank() }.orEmpty()
+        // 旧版「常用」已取消
+        if (prefs.contains("pinned_apps")) prefs.edit().remove("pinned_apps").apply()
         _lastVideo.value = prefs.getString(K_LAST_VIDEO, null)
     }
 
-    // ------------------------------------------------------------ 抽屉「常用」
+    // ------------------------------------------------------------ 抽屉应用顺序
 
-    /** null 表示用户从没改过，由桌面按已安装应用给一份默认值 */
-    private val _pinned = MutableStateFlow<List<String>?>(null)
-    val pinned: StateFlow<List<String>?> = _pinned.asStateFlow()
+    /** 用户排过的应用顺序（包名）；不在里面的应用（新装的）按默认顺序接在后面 */
+    private val _appOrder = MutableStateFlow<List<String>>(emptyList())
+    val appOrder: StateFlow<List<String>> = _appOrder.asStateFlow()
 
-    fun setPinned(packages: List<String>) {
-        prefs.edit().putString(K_PINNED, packages.joinToString(",")).apply()
-        _pinned.value = packages
+    fun setAppOrder(packages: List<String>) {
+        prefs.edit().putString(K_APP_ORDER, packages.joinToString(",")).apply()
+        _appOrder.value = packages
+    }
+
+    // ------------------------------------------------------------ 首页影视行顺序
+
+    /** 首页那一排影视应用自己的顺序，和抽屉分开：首页怎么排不影响抽屉 */
+    private val _mediaOrder = MutableStateFlow<List<String>>(emptyList())
+    val mediaOrder: StateFlow<List<String>> = _mediaOrder.asStateFlow()
+
+    fun setMediaOrder(packages: List<String>) {
+        prefs.edit().putString(K_MEDIA_ORDER, packages.joinToString(",")).apply()
+        _mediaOrder.value = packages
     }
 
     // ------------------------------------------------------------ 上次观看
@@ -155,6 +195,23 @@ object AppSettings {
         if (cityChanged) edit.remove(K_LAT).remove(K_LON)
         edit.apply()
         _state.value = next
+    }
+
+    /** 选区；name 为空表示「不选，用城市中心」 */
+    @Synchronized
+    fun saveDistrict(city: String, name: String, lat: Double?, lon: Double?) {
+        val edit = prefs.edit()
+        if (name.isBlank() || lat == null || lon == null) {
+            edit.remove(K_DISTRICT).remove(K_DISTRICT_CITY).remove(K_DISTRICT_LAT).remove(K_DISTRICT_LON).apply()
+            _state.value = _state.value.copy(district = "", districtCity = "", districtLat = null, districtLon = null)
+            return
+        }
+        edit.putString(K_DISTRICT, name)
+            .putString(K_DISTRICT_CITY, city)
+            .putFloat(K_DISTRICT_LAT, lat.toFloat())
+            .putFloat(K_DISTRICT_LON, lon.toFloat())
+            .apply()
+        _state.value = _state.value.copy(district = name, districtCity = city, districtLat = lat, districtLon = lon)
     }
 
     /** 自动定位的结果落盘，6 小时内不重复查 */

@@ -17,5 +17,8 @@ fi
 adb install -r "$APK"
 # 投屏：电视停在别的应用里时，收到照片/视频要能切到前台
 adb shell appops set com.zlaong.tvhome SYSTEM_ALERT_WINDOW allow >/dev/null 2>&1 || true
+# 首页图标下面的「还在后台」小点：要读系统的任务列表，这两个权限普通应用拿不到，只能这样给
+adb shell pm grant com.zlaong.tvhome android.permission.DUMP >/dev/null 2>&1 || true
+adb shell pm grant com.zlaong.tvhome android.permission.PACKAGE_USAGE_STATS >/dev/null 2>&1 || true
 adb shell am start -n com.zlaong.tvhome/.MainActivity >/dev/null
 echo "已推送到设备并打开桌面"

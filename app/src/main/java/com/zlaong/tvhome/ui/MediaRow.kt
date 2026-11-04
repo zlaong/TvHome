@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -120,6 +121,9 @@ fun MediaRow(
     rowFocused: Boolean,
     onTap: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    running: Set<String> = emptySet(),
+    /** 正在挪选中的那个：放大一点、换黄色描边 */
+    moving: Boolean = false,
 ) {
     val ui = LocalUi.current
     val state = rememberLazyListState()
@@ -150,18 +154,28 @@ fun MediaRow(
             if (loaded) item { EmptyMedia(rowFocused) }
         } else {
             itemsIndexed(apps, key = { _, a -> a.packageName }) { i, app ->
-                MediaItem(app, app.packageName == lastVideo, rowFocused && i == focusedIndex) { onTap(i) }
+                val focused = rowFocused && i == focusedIndex
+                MediaItem(app, app.packageName == lastVideo, focused, lifted = focused && moving, running = app.packageName in running) { onTap(i) }
             }
         }
     }
 }
 
 @Composable
-private fun MediaItem(app: InstalledApp, last: Boolean, focused: Boolean, onTap: () -> Unit) {
+private fun MediaItem(app: InstalledApp, last: Boolean, focused: Boolean, lifted: Boolean, running: Boolean, onTap: () -> Unit) {
     val ui = LocalUi.current
-    val scale by animateFloatAsState(if (focused) 1.08f else 1f, Tv.focus(), label = "media")
+    val scale by animateFloatAsState(
+        when {
+            lifted -> 1.12f
+            focused -> 1.08f
+            else -> 1f
+        },
+        Tv.focus(),
+        label = "media",
+    )
     val show by animateFloatAsState(if (focused) 1f else 0f, Tv.focus(), label = "mediaName")
-    val sheen by rememberSheen(focused)
+    val dot by animateFloatAsState(if (running) 1f else 0f, Tv.focus(), label = "mediaDot")
+    val sheen by rememberSheen(focused && !lifted)
     val brand = BrandColor.of(app)
     val shape = RoundedCornerShape(ui.d(16))
 
@@ -169,7 +183,7 @@ private fun MediaItem(app: InstalledApp, last: Boolean, focused: Boolean, onTap:
         Box(
             Modifier
                 .graphicsLayer { scaleX = scale; scaleY = scale }
-                .focusRing(show, ui.d(16), ui.d(5))
+                .focusRing(show, ui.d(16), ui.d(5), if (lifted) Tv.busy else Color.White)
                 .shadow(
                     ui.d(if (focused) 40 else 16),
                     shape,
@@ -197,15 +211,30 @@ private fun MediaItem(app: InstalledApp, last: Boolean, focused: Boolean, onTap:
                 )
             }
         }
-        Text(
-            app.label,
-            style = TextStyle(fontSize = ui.t(24), color = Tv.text, shadow = nameShadow),
-            maxLines = 1,
-            modifier = Modifier.graphicsLayer {
-                alpha = show
-                translationY = (-6f + 14f * show) * ui.px(1, density)
-            },
-        )
+        // 名字和小点叠在同一块地方：选中时名字落下来、小点让开；没选中时只留小点（像 macOS 的程序坞）
+        Box(contentAlignment = Alignment.TopCenter) {
+            Box(
+                Modifier
+                    .padding(top = ui.d(2))
+                    .graphicsLayer {
+                        alpha = dot * (1f - show)
+                        scaleX = 0.4f + 0.6f * dot
+                        scaleY = 0.4f + 0.6f * dot
+                    }
+                    .size(ui.d(10))
+                    .shadow(ui.d(4), CircleShape, clip = false)
+                    .background(Color.White.copy(alpha = 0.9f), CircleShape)
+            )
+            Text(
+                app.label,
+                style = TextStyle(fontSize = ui.t(24), color = Tv.text, shadow = nameShadow),
+                maxLines = 1,
+                modifier = Modifier.graphicsLayer {
+                    alpha = show
+                    translationY = (-6f + 14f * show) * ui.px(1, density)
+                },
+            )
+        }
     }
 }
 

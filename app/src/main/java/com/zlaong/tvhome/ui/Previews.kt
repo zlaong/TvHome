@@ -23,7 +23,7 @@ import com.zlaong.tvhome.data.WeatherUi
 private fun demoOtherApps(): List<InstalledApp> = listOf(
     "文件管理", "相册", "音乐", "Google Play", "当贝市场", "我的电视",
 ).map { name ->
-    InstalledApp(label = name, packageName = name, icon = null, banner = null, intent = Intent(), isLive = name == "我的电视")
+    InstalledApp(label = name, packageName = name, icon = null, banner = null, intent = Intent())
 }
 
 private val demoWeather = WeatherUi(
@@ -69,7 +69,7 @@ private val demoHome = HomeUi(
 private fun DemoHome(nav: Nav, printer: PrinterUi = demoPrinter) {
     val context = LocalContext.current
     val apps = remember { DemoData.videoApps(context) + demoOtherApps() }
-    val groups = remember { buildGroups(apps, emptyList(), listOf("Google Play")) }
+    val groups = remember { buildGroups(apps, emptyList()) }
     val config = AppConfig()
     HomeContent(
         data = HomeData(

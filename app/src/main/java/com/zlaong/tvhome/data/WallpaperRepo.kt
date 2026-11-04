@@ -178,7 +178,11 @@ object WallpaperRepo {
         }
     }
 
-    /** 每天模式：过了零点就换今天的图。首页每次回到前台调一次，失败了下次再试 */
+    /**
+     * 每天模式：过了零点就换今天的图。首页回到前台、以及停在首页时每半小时调一次，失败了下次再试。
+     * 必应列表里第一张的 enddate 等于今天才算拿到了今天的图；
+     * 零点刚过必应可能还没换，这时先用着，但不记成「今天已更新」，下次再查。
+     */
     suspend fun refreshDaily() {
         val c = _choice.value
         if (c.mode != Mode.Daily || c.day == today()) return
@@ -187,8 +191,10 @@ object WallpaperRepo {
             runCatching {
                 bingCache = null
                 val img = bingList().firstOrNull() ?: return
-                if (img.id != c.bingId) download(img.full)
-                save(Choice(Mode.Daily, img.id, img.title, today()))
+                val fresh = img.date == today()
+                if (img.id == c.bingId && !fresh) return
+                withContext(Dispatchers.IO) { if (img.id != c.bingId) download(img.full) }
+                save(Choice(Mode.Daily, img.id, img.title, if (fresh) today() else c.day))
             }.onFailure { Log.w(TAG, "每日壁纸更新失败", it) }
         }
     }

@@ -364,11 +364,13 @@ private fun EnvPanel(h: HomeUi) {
         }
         Text("室内", fontSize = ui.t(20), color = Tv.text3)
         listOfNotNull(
-            env.humidity?.let { "湿度" to "${it.roundToInt()}%" },
-            env.pm25?.let { "PM2.5" to "${it.roundToInt()}" },
-            env.co2?.let { "CO₂" to "${it.roundToInt()} ppm" },
-        ).forEach { (k, v) ->
-            Row(Modifier.width(ui.d(260))) {
+            env.humidity?.let { Triple(TvIcon.Droplet, "湿度", "${it.roundToInt()}%") },
+            env.pm25?.let { Triple(TvIcon.Particles, "PM2.5", "${it.roundToInt()}") },
+            env.co2?.let { Triple(TvIcon.Molecule, "CO₂", "${it.roundToInt()} ppm") },
+        ).forEach { (icon, k, v) ->
+            Row(Modifier.width(ui.d(260)), verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, ui.d(28), Tv.text2)
+                Spacer(Modifier.width(ui.d(10)))
                 Text(k, fontSize = ui.t(24), color = Tv.text2, modifier = Modifier.weight(1f))
                 Text(v, fontSize = ui.t(24), color = Tv.text)
             }

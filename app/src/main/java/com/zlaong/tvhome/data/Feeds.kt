@@ -111,7 +111,7 @@ object Feeds {
 
         // 自动定位写回的 autoLat/autoLon 不算，否则每次定位成功都会触发重拉
         loop(
-            key = AppSettings.state.map { listOf(it.weatherAuto, it.cityName, it.lat, it.lon) },
+            key = AppSettings.state.map { listOf(it.weatherAuto, it.cityName, it.lat, it.lon, it.district) },
             force = forceWeather,
             fresh = { key -> key == weatherKey && System.currentTimeMillis() - weatherAt < WEATHER_EVERY },
             remaining = { WEATHER_EVERY - (System.currentTimeMillis() - weatherAt) },

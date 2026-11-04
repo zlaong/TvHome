@@ -107,7 +107,7 @@ private fun Glass(modifier: Modifier, content: @Composable () -> Unit) {
 private fun NowBlock(w: WeatherUi, modifier: Modifier) {
     val ui = LocalUi.current
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        WeatherArt(skyOf(w.code), ui.d(220))
+        WeatherArt(skyOf(w.code, w.isDay), ui.d(220))
         Spacer(Modifier.width(ui.d(24)))
         Column(verticalArrangement = Arrangement.spacedBy(ui.d(6))) {
             Text(w.temp.degree(), fontSize = ui.t(128), lineHeight = ui.t(128), fontWeight = FontWeight.Light, color = Tv.text)
@@ -252,7 +252,7 @@ private fun HourlyChart(hours: List<HourForecast>, modifier: Modifier) {
                     drawText(t, topLeft = Offset(cx - t.size.width / 2f, cy - t.size.height - ui.px(8, density)))
                 }
 
-                translate(cx - iconPx / 2, iconTop) { drawWeatherMini(skyOf(h.code), iconPx) }
+                translate(cx - iconPx / 2, iconTop) { drawWeatherMini(skyOf(h.code, h.isDay), iconPx) }
 
                 val pop = h.pop
                 val popTop = iconTop + iconPx + ui.px(6, density)

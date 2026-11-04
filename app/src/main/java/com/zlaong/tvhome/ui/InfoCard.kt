@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
-import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -44,63 +44,79 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
-/** 左上角的多功能卡：天气 / 打印机 / 米家，遥控器左右切换 */
-@Composable
-fun InfoCard(data: HomeData, page: Int, focused: Boolean, onTap: () -> Unit) {
-    val ui = LocalUi.current
-    val scale by animateFloatAsState(if (focused) 1.04f else 1f, Tv.focus(), label = "card")
-    val ring by animateFloatAsState(if (focused) 1f else 0f, Tv.focus(), label = "cardRing")
-    val trackX by animateDpAsState(ui.d(-640 * page), Tv.move(), label = "track")
-    val sheen by rememberSheen(focused)
-    val shape = RoundedCornerShape(ui.d(28))
+private const val CARD_W = 640
+private const val CARD_H = 272
+private const val TILE_GAP = 24
+private const val TILE_MIN_W = 520
+/** 平铺时能用的宽度：1920 减左右边距 96×2 */
+private const val TILE_SPAN = 1728
 
-    Column(verticalArrangement = Arrangement.spacedBy(ui.d(16))) {
+/**
+ * 左上角的多功能卡：天气 / 打印机 / 米家。
+ * 平时只露当前那一页；焦点进卡片区时所有页平铺成一排，左右换卡片，确认键打开。
+ * 平铺时卡片内容按原尺寸排版再整体缩小，和单张时长得一样。
+ */
+@Composable
+fun InfoCard(data: HomeData, page: Int, tiled: Boolean, onTap: (Int) -> Unit) {
+    val ui = LocalUi.current
+    val n = CARD_PAGES.size
+    val tileW = ((TILE_SPAN - TILE_GAP * (n - 1)) / n).coerceIn(TILE_MIN_W, CARD_W)
+    // 页数多到一排放不下时，整排跟着焦点往左挪
+    val overflow = (tileW * n + TILE_GAP * (n - 1) - TILE_SPAN).coerceAtLeast(0)
+    val shift = if (n <= 1) 0 else overflow * page / (n - 1)
+    val trackX by animateDpAsState(ui.d(if (tiled) -shift else 0), Tv.move(), label = "track")
+
+    Box(Modifier.offset(x = trackX)) {
+        CARD_PAGES.forEachIndexed { i, p -> CardTile(data, p, i, page, tiled, tileW, onTap) }
+    }
+}
+
+@Composable
+private fun CardTile(data: HomeData, p: CardPage, i: Int, page: Int, tiled: Boolean, tileW: Int, onTap: (Int) -> Unit) {
+    val ui = LocalUi.current
+    val current = i == page
+    val focused = tiled && current
+    val k by animateFloatAsState(if (tiled) tileW / CARD_W.toFloat() else 1f, Tv.move(), label = "tileK")
+    val x by animateDpAsState(ui.d(if (tiled) i * (tileW + TILE_GAP) else 0), Tv.move(), label = "tileX")
+    val shown by animateFloatAsState(if (tiled || current) 1f else 0f, Tv.focus(), label = "tileShown")
+    val lift by animateFloatAsState(if (focused) 1.04f else 1f, Tv.focus(), label = "tileLift")
+    val ring by animateFloatAsState(if (focused) 1f else 0f, Tv.focus(), label = "tileRing")
+    val sheen by rememberSheen(focused)
+    if (shown < 0.01f) return
+    val shape = RoundedCornerShape(ui.d(28) * k)
+
+    Box(
+        Modifier
+            .offset(x = x)
+            .graphicsLayer {
+                alpha = shown
+                scaleX = lift
+                scaleY = lift
+                transformOrigin = TransformOrigin(0.5f, 1f)
+            }
+            .focusRing(ring, ui.d(28) * k, ui.d(5))
+            .shadow(ui.d(if (focused) 24 else 16), shape, clip = false)
+            .size(ui.d(CARD_W) * k, ui.d(CARD_H) * k)
+            .frosted(shape, Tv.glassTint.copy(alpha = 0.46f))
+            .border(ui.d(1), Color.White.copy(alpha = 0.12f), shape)
+            .sheen(sheen)
+            .tap { onTap(i) }
+    ) {
         Box(
             Modifier
+                .wrapContentSize(Alignment.TopStart, unbounded = true)
+                .requiredSize(ui.d(CARD_W), ui.d(CARD_H))
                 .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    transformOrigin = TransformOrigin(0f, 1f)
+                    scaleX = k
+                    scaleY = k
+                    transformOrigin = TransformOrigin(0f, 0f)
                 }
-                .focusRing(ring, ui.d(28), ui.d(5))
-                .shadow(ui.d(if (focused) 24 else 16), shape, clip = false)
-                .size(ui.d(640), ui.d(272))
-                .frosted(shape, Tv.glassTint.copy(alpha = 0.46f))
-                .border(ui.d(1), Color.White.copy(alpha = 0.12f), shape)
-                .sheen(sheen)
-                .tap(onTap)
+                .padding(start = ui.d(36), end = ui.d(36), top = ui.d(28), bottom = ui.d(30))
         ) {
-            Row(Modifier.wrapContentWidth(Alignment.Start, unbounded = true).offset(x = trackX)) {
-                CARD_PAGES.forEach { p ->
-                    Box(
-                        Modifier
-                            .requiredSize(ui.d(640), ui.d(272))
-                            .padding(start = ui.d(36), end = ui.d(36), top = ui.d(28), bottom = ui.d(30))
-                    ) {
-                        when (p) {
-                            CardPage.Weather -> WeatherPage(data)
-                            CardPage.Printer -> PrinterPage(data)
-                            CardPage.Home -> HomePage(data)
-                        }
-                    }
-                }
-            }
-        }
-        val dotsAlpha by animateFloatAsState(if (focused) 1f else 0f, Tv.focus(), label = "dots")
-        Row(
-            Modifier
-                .height(ui.d(12))
-                .padding(start = ui.d(8))
-                .graphicsLayer { alpha = dotsAlpha },
-            horizontalArrangement = Arrangement.spacedBy(ui.d(8)),
-        ) {
-            CARD_PAGES.forEachIndexed { i, _ ->
-                val w by animateDpAsState(ui.d(if (i == page) 36 else 12), Tv.focus(), label = "dot")
-                Box(
-                    Modifier
-                        .size(w, ui.d(12))
-                        .background(if (i == page) Color.White else Color.White.copy(alpha = 0.4f), RoundedCornerShape(50))
-                )
+            when (p) {
+                CardPage.Weather -> WeatherPage(data)
+                CardPage.Printer -> PrinterPage(data)
+                CardPage.Home -> HomePage(data)
             }
         }
     }
@@ -175,7 +191,7 @@ private fun WeatherPage(data: HomeData) {
                         else -> { Big("—"); Sub("正在获取天气…", Tv.text3) }
                     }
                 }
-                if (w.temp != null) WeatherArt(skyOf(w.code), ui.d(136), Modifier.offset(x = ui.d(8)))
+                if (w.temp != null) WeatherArt(skyOf(w.code, w.isDay), ui.d(136), Modifier.offset(x = ui.d(8)))
             }
         },
         foot = {
@@ -190,7 +206,7 @@ private fun WeatherPage(data: HomeData) {
                         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                             Text("${h.hour}时", fontSize = ui.t(20), color = Tv.text2)
                             Spacer(Modifier.width(ui.d(8)))
-                            WeatherMini(skyOf(h.code), ui.d(26))
+                            WeatherMini(skyOf(h.code, h.isDay), ui.d(26))
                             Spacer(Modifier.width(ui.d(8)))
                             Text("${h.temp.roundToInt()}°", fontSize = ui.t(20), fontWeight = FontWeight.SemiBold, color = Tv.text)
                         }
@@ -354,7 +370,7 @@ private fun HomePage(data: HomeData) {
     )
 }
 
-/** 左边：客厅温度大字，湿度、PM2.5、CO₂ 小字 */
+/** 左边：客厅温度大字，湿度、PM2.5、CO₂ 用小图标 + 数字 */
 @Composable
 private fun EnvBlock(env: com.zlaong.tvhome.data.HomeEnv) {
     val ui = LocalUi.current
@@ -367,14 +383,23 @@ private fun EnvBlock(env: com.zlaong.tvhome.data.HomeEnv) {
             if (env.temp != null) Text("°", fontSize = ui.t(36), color = Tv.text2, modifier = Modifier.padding(bottom = ui.d(10)))
         }
         val small = listOfNotNull(
-            env.humidity?.let { "湿度 ${it.roundToInt()}%" },
-            env.pm25?.let { "PM2.5 ${it.roundToInt()}" },
-            env.co2?.let { "CO₂ ${it.roundToInt()}" },
+            env.humidity?.let { TvIcon.Droplet to "${it.roundToInt()}%" },
+            env.pm25?.let { TvIcon.Particles to "${it.roundToInt()}" },
+            env.co2?.let { TvIcon.Molecule to "${it.roundToInt()}" },
         )
-        Text(
-            if (small.isEmpty()) "客厅" else small.joinToString(" · "),
-            fontSize = ui.t(20), color = Tv.text2, maxLines = 1,
-        )
+        if (small.isEmpty()) {
+            Text("客厅", fontSize = ui.t(20), color = Tv.text2, maxLines = 1)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(ui.d(16)), verticalAlignment = Alignment.CenterVertically) {
+                small.forEach { (icon, value) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(icon, ui.d(22), Tv.text2)
+                        Spacer(Modifier.width(ui.d(6)))
+                        Text(value, fontSize = ui.t(20), color = Tv.text2, maxLines = 1)
+                    }
+                }
+            }
+        }
     }
 }
 

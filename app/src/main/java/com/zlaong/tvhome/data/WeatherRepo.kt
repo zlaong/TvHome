@@ -21,6 +21,8 @@ data class WeatherUi(
     val code: Int = -1,
     val text: String = "",
     val emoji: String = "🌡",
+    /** Open-Meteo 的 is_day：日出到日落之间为 true，晚上晴天画月亮 */
+    val isDay: Boolean = true,
     val error: String? = null,
     val updatedAt: Long = 0L,
     /** 风向（中文，如「东北风」）和风力等级 */
@@ -50,7 +52,7 @@ data class WeatherUi(
 )
 
 /** pop：降水概率 %，拿不到时为 null */
-data class HourForecast(val hour: Int, val temp: Double, val code: Int, val pop: Int? = null)
+data class HourForecast(val hour: Int, val temp: Double, val code: Int, val pop: Int? = null, val isDay: Boolean = true)
 
 /** date：yyyy-MM-dd */
 data class DayForecast(val date: String, val high: Double, val low: Double, val code: Int, val pop: Int?)
@@ -61,7 +63,11 @@ object WeatherRepo {
     private const val AUTO_TTL = 6 * 60 * 60 * 1000L
 
     suspend fun fetch(config: AppConfig): WeatherUi {
-        val place = if (config.weatherAuto) autoPlace(config) else manualPlace(config)
+        val cityPlace = if (config.weatherAuto) autoPlace(config) else manualPlace(config)
+        // 选了区就用区中心的坐标，标题显示「北京 · 顺义区」；自动定位要先拿到城市，才知道选的区还对不对
+        val place = cityPlace?.let { p ->
+            AppSettings.state.value.activeDistrict?.let { (name, lat, lon) -> Place("${p.city} · $name", lat, lon) } ?: p
+        }
         val (city, lat, lon) = place ?: return WeatherUi(
             loading = false,
             city = if (config.weatherAuto) "" else config.cityName,
@@ -71,9 +77,9 @@ object WeatherRepo {
         return try {
 
             val url = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
-                "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code," +
+                "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day," +
                 "wind_speed_10m,wind_direction_10m,surface_pressure,visibility" +
-                "&hourly=temperature_2m,weather_code,precipitation_probability" +
+                "&hourly=temperature_2m,weather_code,precipitation_probability,is_day" +
                 "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max," +
                 "uv_index_max,sunrise,sunset&forecast_days=7&timezone=auto"
             // 空气质量是另一个接口，和天气同时发；拿不到不影响天气
@@ -85,7 +91,8 @@ object WeatherRepo {
             val daily = root.getJSONObject("daily")
 
             val code = cur.optInt("weather_code", -1)
-            val kind = describe(code)
+            val isDay = cur.optInt("is_day", 1) != 0
+            val kind = describe(code, isDay)
             val windKmh = cur.optDouble("wind_speed_10m", Double.NaN)
             val windDeg = cur.optDouble("wind_direction_10m", Double.NaN)
             val days = parseDaily(daily)
@@ -100,6 +107,7 @@ object WeatherRepo {
                 code = code,
                 text = kind.first,
                 emoji = kind.second,
+                isDay = isDay,
                 updatedAt = System.currentTimeMillis(),
                 windDir = windDeg.takeIf { !it.isNaN() }?.let(::windDirection),
                 windLevel = windKmh.takeIf { !it.isNaN() }?.let(::beaufort),
@@ -188,6 +196,7 @@ object WeatherRepo {
         val temps = hourly.optJSONArray("temperature_2m") ?: return emptyList()
         val codes = hourly.optJSONArray("weather_code") ?: return emptyList()
         val pops = hourly.optJSONArray("precipitation_probability")
+        val days = hourly.optJSONArray("is_day")
         // 时间格式 2026-11-02T13:00，同一时区，直接比字符串
         val nowHour = nowIso.take(13)
         var start = (0 until times.length()).firstOrNull { times.optString(it).take(13) > nowHour } ?: return emptyList()
@@ -195,7 +204,8 @@ object WeatherRepo {
         while (out.size < count && start < times.length()) {
             val hour = times.optString(start).substring(11, 13).toIntOrNull() ?: break
             val pop = pops?.takeIf { !it.isNull(start) }?.optInt(start)
-            out.add(HourForecast(hour, temps.optDouble(start), codes.optInt(start, -1), pop))
+            val isDay = days?.optInt(start, 1)?.let { it != 0 } ?: true
+            out.add(HourForecast(hour, temps.optDouble(start), codes.optInt(start, -1), pop, isDay))
             start += every
         }
         return out
@@ -252,10 +262,11 @@ object WeatherRepo {
         return limits.indexOfFirst { kmh < it }.let { if (it < 0) 12 else it }
     }
 
-    fun describe(code: Int): Pair<String, String> = when (code) {
-        0 -> "晴" to "☀️"
-        1 -> "少云" to "🌤"
-        2 -> "多云" to "⛅️"
+    /** 文字不分昼夜（iOS 中文版晚上也叫「晴」），只有 emoji 晚上换月亮 */
+    fun describe(code: Int, isDay: Boolean = true): Pair<String, String> = when (code) {
+        0 -> "晴" to if (isDay) "☀️" else "🌙"
+        1 -> "少云" to if (isDay) "🌤" else "🌙"
+        2 -> "多云" to if (isDay) "⛅️" else "☁️"
         3 -> "阴" to "☁️"
         45, 48 -> "有雾" to "🌫"
         51, 53, 55, 56, 57 -> "毛毛雨" to "🌦"

@@ -5,6 +5,18 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 投屏：电视停在别的应用里时，收到照片/视频能切到前台播放 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 长按应用 → 卸载，弹出系统卸载确认框 -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!--
+      首页应用下面的「还在后台」小点：读系统的最近任务列表要这个权限。
+      普通应用拿不到，装的时候 tools/install.sh 用 adb 授予（两个都要）；没授予就不显示小点，别的不受影响
+    -->
+    <uses-permission android:name="android.permission.DUMP"
+        xmlns:tools="http://schemas.android.com/tools"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        xmlns:tools="http://schemas.android.com/tools"
+        tools:ignore="ProtectedPermissions" />
 
     <!-- 电视没有触摸屏，必须声明为非必需，否则部分设备/商店会拒绝 -->
     <uses-feature
