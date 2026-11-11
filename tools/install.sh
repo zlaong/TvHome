@@ -20,5 +20,11 @@ adb shell appops set com.zlaong.tvhome SYSTEM_ALERT_WINDOW allow >/dev/null 2>&1
 # 首页图标下面的「还在后台」小点：要读系统的任务列表，这两个权限普通应用拿不到，只能这样给
 adb shell pm grant com.zlaong.tvhome android.permission.DUMP >/dev/null 2>&1 || true
 adb shell pm grant com.zlaong.tvhome android.permission.PACKAGE_USAGE_STATS >/dev/null 2>&1 || true
+# 正式版：让电视把整个桌面提前编译成机器码。默认只按使用记录慢慢优化，刚装好时动画偏涩
+# 调试版不做：调试版本身没开优化，编译了也没用
+if [ "${1:-}" != "--debug" ]; then
+  echo "正在提前编译（约半分钟）…"
+  adb shell cmd package compile -m speed -f com.zlaong.tvhome >/dev/null 2>&1 || echo "提前编译失败，不影响使用"
+fi
 adb shell am start -n com.zlaong.tvhome/.MainActivity >/dev/null
 echo "已推送到设备并打开桌面"
