@@ -20,8 +20,12 @@ data class InstalledApp(
     val removable: Boolean = false,
 ) {
     /** 第一次用到时转成位图并缓存，抽屉每次展开不再重复转换 */
+    /** 内置的高清横幅（640x360）按原尺寸转，App 自带的（多为 320x180）按 320x180 转 */
     val bannerBitmap: Bitmap? by lazy {
-        banner?.let { runCatching { it.toBitmap(320, 180) }.getOrNull() }
+        banner?.let {
+            val hd = it.intrinsicWidth >= 640
+            runCatching { if (hd) it.toBitmap(640, 360) else it.toBitmap(320, 180) }.getOrNull()
+        }
     }
     val iconBitmap: Bitmap? by lazy {
         icon?.let { runCatching { it.toBitmap(144, 144) }.getOrNull() }
@@ -57,6 +61,20 @@ object AppRepo {
         "com.miguvideo.tv" to 10,
     )
 
+    /**
+     * 内置高清横幅（640x360）。标志取自各家在应用商店的 800px 官方图标，按 App 原横幅的配色和排版重做。
+     * 新增 App：在 res/drawable-nodpi 放一张 640x360 的图，再在这里加一行。
+     */
+    private val HD_BANNERS = mapOf(
+        "com.ktcp.tvvideo" to com.zlaong.tvhome.R.drawable.hd_banner_ktcp,       // NewTV极光
+        "com.ktcp.video" to com.zlaong.tvhome.R.drawable.hd_banner_ktcp,         // 云视听极光（同一套图标）
+        "com.cibn.tv" to com.zlaong.tvhome.R.drawable.hd_banner_cibn,            // 酷喵
+        "com.gitvdemo.video" to com.zlaong.tvhome.R.drawable.hd_banner_qiyi,     // 银河奇异果
+        "com.hunantv.market" to com.zlaong.tvhome.R.drawable.hd_banner_mgtv,     // 芒果TV
+        "com.mgtv.tv" to com.zlaong.tvhome.R.drawable.hd_banner_mgtv,
+        "com.xiaodianshi.tv.yst" to com.zlaong.tvhome.R.drawable.hd_banner_bili, // 云视听小电视
+    )
+
     /** 名字里带“TV/电视”但不是影视 App 的，直接排除（遥控服务最容易误伤） */
     /** 完全不出现在桌面上的：系统服务类，用户不会主动去点 */
     private val HIDDEN = setOf(
@@ -75,7 +93,28 @@ object AppRepo {
         "小电视", "云视听",
     )
 
+    /**
+     * 扫出来的应用列表。图标和横幅图都在里面，重扫一次要重新解码几十张图，
+     * 所以扫一次就留着，只有装/卸/更新应用时才作废（[invalidate]）。
+     */
+    @Volatile private var cache: List<InstalledApp>? = null
+
     fun loadApps(context: Context): List<InstalledApp> {
+        cache?.let { return it }
+        return synchronized(this) {
+            cache ?: scan(context).also { list ->
+                cache = list
+                warmBitmaps(list)
+            }
+        }
+    }
+
+    /** 装/卸/更新应用之后调用，下次进桌面重新扫一遍 */
+    fun invalidate() {
+        cache = null
+    }
+
+    private fun scan(context: Context): List<InstalledApp> {
         val pm = context.packageManager
         val leanback = pm.queryIntentActivities(
             Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0
@@ -94,7 +133,9 @@ object AppRepo {
             val label = info.loadLabel(pm)?.toString()?.ifBlank { pkg } ?: pkg
             val icon = runCatching { info.loadIcon(pm) }.getOrNull()
             // 优先用入口 Activity 自己的横幅，没有再退回整个应用的横幅
-            val banner = runCatching { activityInfo.loadBanner(pm) }.getOrNull()
+            // 常用影视 App 自带的横幅只有 320x180 甚至更小，电视上发糊：优先用内置的高清版
+            val banner = HD_BANNERS[pkg]?.let { runCatching { context.getDrawable(it) }.getOrNull() }
+                ?: runCatching { activityInfo.loadBanner(pm) }.getOrNull()
                 ?: runCatching { pm.getApplicationBanner(pkg) }.getOrNull()
             val intent = Intent(Intent.ACTION_MAIN)
                 .addCategory(Intent.CATEGORY_LAUNCHER)

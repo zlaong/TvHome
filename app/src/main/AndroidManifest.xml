@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- 长按应用 → 卸载，弹出系统卸载确认框 -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- 点图标时把还在后台的应用原样切回前台（不重新启动它） -->
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
     <!--
       首页应用下面的「还在后台」小点：读系统的最近任务列表要这个权限。
       普通应用拿不到，装的时候 tools/install.sh 用 adb 授予（两个都要）；没授予就不显示小点，别的不受影响

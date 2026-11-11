@@ -18,7 +18,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 开代码压缩和资源裁剪：安装包更小，界面代码跑得也快一些
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // 用 debug 签名，方便直接 adb install 到电视上试
             signingConfig = signingConfigs.getByName("debug")
         }

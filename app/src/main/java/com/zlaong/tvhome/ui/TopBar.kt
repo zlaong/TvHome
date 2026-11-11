@@ -19,7 +19,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -30,6 +34,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.geometry.Offset
 import com.zlaong.tvhome.data.isPrinting
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -122,6 +127,15 @@ private fun Chip(id: ChipId, data: HomeData, focused: Boolean, onTap: (ChipId) -
     val ui = LocalUi.current
     val info = chipInfo(id, data)
     val isTime = id == ChipId.Time
+    // 时间自己走：只有这一个 chip 重画，不牵动整页
+    var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(isTime) {
+        if (!isTime) return@LaunchedEffect
+        while (true) {
+            clock = System.currentTimeMillis()
+            delay(5_000)
+        }
+    }
     val scale by animateFloatAsState(if (focused) 1.04f else 1f, Tv.focus(), label = "chip")
     val down = info.dot == Dot.Down
     val fg = when {
@@ -175,8 +189,8 @@ private fun Chip(id: ChipId, data: HomeData, focused: Boolean, onTap: (ChipId) -
             }
         }
         if (isTime) {
-            Text(clockFmt.format(Date(data.now)), fontSize = ui.t(24), fontWeight = FontWeight.SemiBold, color = fg)
-            if (focused) Text(dateFmt.format(Date(data.now)), fontSize = ui.t(24), color = fg.copy(alpha = 0.7f))
+            Text(clockFmt.format(Date(clock)), fontSize = ui.t(24), fontWeight = FontWeight.SemiBold, color = fg)
+            if (focused) Text(dateFmt.format(Date(clock)), fontSize = ui.t(24), color = fg.copy(alpha = 0.7f))
         } else if (focused) {
             Text(info.label, fontSize = ui.t(24), color = fg, maxLines = 1)
         }

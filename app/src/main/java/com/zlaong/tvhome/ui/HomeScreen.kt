@@ -1,7 +1,9 @@
 package com.zlaong.tvhome.ui
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
@@ -77,7 +80,6 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
     val home by Feeds.home.collectAsState()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var net by remember { mutableStateOf(Net.Wifi) }
-    var resumed by remember { mutableIntStateOf(0) }
     val appOrder by AppSettings.appOrder.collectAsState()
     val mediaOrder by AppSettings.mediaOrder.collectAsState()
     val lastVideo by AppSettings.lastVideo.collectAsState()
@@ -87,9 +89,8 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
         value = withContext(Dispatchers.Default) { Wallpaper.load(context) }
     }
 
-    // 每次回到桌面都重新扫一遍：装/卸了应用能及时反映
+    // 回到桌面：抢焦点；顺便查一次后台任务、每日壁纸
     LifecycleResumeEffect(Unit) {
-        resumed++
         runCatching { focus.requestFocus() }
         // 每日壁纸：回到桌面查一次；一直停在桌面（电视常开）也每半小时查一次，过了零点就换
         val job = scope.launch {
@@ -101,21 +102,46 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
         onPauseOrDispose { job.cancel() }
     }
 
-    // 首页影视应用下面的小点：还在后台没退出的。停在首页时每 5 秒查一次（读一次几十毫秒）
-    var running by remember { mutableStateOf(emptySet<String>()) }
+    /**
+     * 后台还在跑的任务（包名 → 任务编号）。
+     * 图标下的小点用它；点图标时也用它把应用原样切回前台，而不是重新下发启动指令
+     * （重发指令很多 App 会重走启动页/开屏广告，看起来就像被重启了）。
+     * 只在回到桌面时查，之后每 30 秒补一次；不再每 5 秒读一遍。
+     */
+    var tasks by remember { mutableStateOf(RunningApps.Tasks()) }
+    val running = tasks.packages
     LifecycleResumeEffect(Unit) {
         val job = scope.launch {
             while (true) {
-                running = RunningApps.load()
-                delay(5_000)
+                tasks = RunningApps.load()
+                delay(30_000)
             }
         }
         onPauseOrDispose { job.cancel() }
     }
 
+    // 应用列表扫一次就留着（图标、横幅图都在里面），装/卸/更新应用时才重扫
     var apps by remember { mutableStateOf(emptyList<InstalledApp>()) }
     var appsLoaded by remember { mutableStateOf(false) }
-    LaunchedEffect(resumed) {
+    var appsVersion by remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REMOVED)
+            addAction(Intent.ACTION_PACKAGE_CHANGED)
+            addAction(Intent.ACTION_PACKAGE_REPLACED)
+            addDataScheme("package")
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: android.content.Context?, intent: Intent?) {
+                AppRepo.invalidate()
+                appsVersion++
+            }
+        }
+        context.registerReceiver(receiver, filter)
+        onDispose { runCatching { context.unregisterReceiver(receiver) } }
+    }
+    LaunchedEffect(appsVersion) {
         apps = withContext(Dispatchers.IO) {
             val real = runCatching { AppRepo.loadApps(context) }.getOrDefault(emptyList())
             val all = if (BuildConfig.DEBUG && AppSettings.demoVideoApps) DemoData.videoApps(context) + real else real
@@ -145,12 +171,13 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
     // 手机开始投了，二维码弹窗就没用了
     LaunchedEffect(Unit) { CastRepo.state.collect { if (it !is CastRepo.State.Idle) nav.castQr = false } }
     var webSetupUrl by remember { mutableStateOf<String?>(null) }
+    // 网络状态、设置网页地址这些变化很慢，30 秒刷一次就够；时间由顶栏自己每秒走
     LaunchedEffect(Unit) {
         while (true) {
             now = System.currentTimeMillis()
             net = currentNet(context)
             webSetupUrl = com.zlaong.tvhome.data.ConfigServer.url()
-            delay(5_000)
+            delay(30_000)
         }
     }
     // 刷新节奏见 Feeds。翻到米家页时马上刷新（10 秒内刚拉过就不重复）
@@ -208,7 +235,13 @@ fun HomeScreen(config: AppConfig, onOpenSettings: () -> Unit, resets: Flow<Unit>
         }
     }
 
-    fun launch(app: InstalledApp) = start(app.intent, app.label)
+    fun launch(app: InstalledApp) {
+        // 还留在后台的任务：直接切回前台，保留它原来的页面和播放进度，
+        // 不会闪启动图、也不会重走开屏广告。切不过去（任务已被系统清掉）再走正常启动
+        val taskId = tasks.ids[app.packageName]
+        if (taskId != null && RunningApps.bringToFront(context, taskId)) return
+        start(app.intent, app.label)
+    }
 
     fun openDrawer() {
         nav.row = Area.DRAWER; nav.expanded = true; nav.dr = 0; nav.dc = 0; nav.dcWant = 0
