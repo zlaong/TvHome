@@ -36,6 +36,8 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.zIndex
 import com.zlaong.tvhome.data.PrinterRepo
 import com.zlaong.tvhome.data.isPrinting
 import java.text.SimpleDateFormat
@@ -64,34 +66,61 @@ fun InfoCard(data: HomeData, page: Int, tiled: Boolean, onTap: (Int) -> Unit) {
     // 页数多到一排放不下时，整排跟着焦点往左挪
     val overflow = (tileW * n + TILE_GAP * (n - 1) - TILE_SPAN).coerceAtLeast(0)
     val shift = if (n <= 1) 0 else overflow * page / (n - 1)
-    val trackX by animateDpAsState(ui.d(if (tiled) -shift else 0), Tv.move(), label = "track")
+    // 收起时把整排左移，让当前那张停在原位；展开时整排回到标准位置。
+    // 所有卡片在自己的格子里跟着整排一起走，间距始终不变，所以飞出来时不会叠在一起。
+    val restX = -page * (tileW + TILE_GAP)
+    val trackX by animateDpAsState(ui.d(if (tiled) -shift else restX), Tv.move(), label = "track")
+    // 占满整排的宽度，平铺后右边的卡片也能点（模拟器调试用）
+    val rowW = tileW * n + TILE_GAP * (n - 1)
 
-    Box(Modifier.offset(x = trackX)) {
-        CARD_PAGES.forEachIndexed { i, p -> CardTile(data, p, i, page, tiled, tileW, onTap) }
+    Box(Modifier.width(ui.d(rowW))) {
+        CARD_PAGES.forEachIndexed { i, p -> CardTile(data, p, i, page, tiled, tileW, trackX, onTap) }
     }
 }
 
 @Composable
-private fun CardTile(data: HomeData, p: CardPage, i: Int, page: Int, tiled: Boolean, tileW: Int, onTap: (Int) -> Unit) {
+private fun CardTile(
+    data: HomeData,
+    p: CardPage,
+    i: Int,
+    page: Int,
+    tiled: Boolean,
+    tileW: Int,
+    trackX: Dp,
+    onTap: (Int) -> Unit,
+) {
     val ui = LocalUi.current
     val current = i == page
     val focused = tiled && current
     val k by animateFloatAsState(if (tiled) tileW / CARD_W.toFloat() else 1f, Tv.move(), label = "tileK")
-    val x by animateDpAsState(ui.d(if (tiled) i * (tileW + TILE_GAP) else 0), Tv.move(), label = "tileX")
-    val shown by animateFloatAsState(if (tiled || current) 1f else 0f, Tv.focus(), label = "tileShown")
+    val x = trackX + ui.d(i * (tileW + TILE_GAP))
+    val shown by animateFloatAsState(
+        targetValue = if (current || tiled) 1f else 0f,
+        animationSpec = when {
+            current -> Tv.focus()
+            tiled -> tween(durationMillis = 220, delayMillis = 60, easing = Tv.easeOut)
+            else -> tween(durationMillis = 140, easing = Tv.easeOut)
+        },
+        label = "tileShown",
+    )
+    // 非当前页出现时轻微放大，补一点「展开」的手感
+    val pop by animateFloatAsState(if (tiled) 1f else 0.94f, tween(220, easing = Tv.easeOut), label = "tilePop")
     val lift by animateFloatAsState(if (focused) 1.04f else 1f, Tv.focus(), label = "tileLift")
     val ring by animateFloatAsState(if (focused) 1f else 0f, Tv.focus(), label = "tileRing")
     val sheen by rememberSheen(focused)
     if (shown < 0.01f) return
     val shape = RoundedCornerShape(ui.d(28) * k)
+    val scale = lift * (if (current) 1f else pop)
 
     Box(
         Modifier
+            // 当前页压在最上面，聚焦放大和投影不会被旁边的卡片盖住
+            .zIndex(if (current) 1f else 0f)
             .offset(x = x)
             .graphicsLayer {
                 alpha = shown
-                scaleX = lift
-                scaleY = lift
+                scaleX = scale
+                scaleY = scale
                 transformOrigin = TransformOrigin(0.5f, 1f)
             }
             .focusRing(ring, ui.d(28) * k, ui.d(5))
