@@ -88,6 +88,30 @@ adb connect <电视IP>:5555      # 电视先开「开发者选项 → 网络调�
 | 室内环境图标 | [Material Design Icons](https://pictogrammers.com/library/mdi/)（与 Home Assistant 同款，Apache 2.0） | — |
 | 壁纸 | 自带《星空下的雪山》（[Unsplash](https://unsplash.com/photos/1519681393784-d120267933ba)，Unsplash License）或 `cn.bing.com` 每日壁纸 | 每天 |
 
+## 免责声明
+
+个人自用项目，非任何厂商或影视平台的官方产品，与奇异果 TV、芒果 TV、云视听、酷喵、CIBN、哔哩哔哩等平台没有合作或关联关系。桌面上出现的应用图标和横幅仅用于标识本机已安装的应用，商标与版权归各自权利人所有（详见 [THIRD-PARTY.md](THIRD-PARTY.md)）。请自行确认在所在地区使用的合法性后再安装。
+
+## 安全说明
+
+| 事项 | 情况 |
+|------|------|
+| 手机改设置的服务 | 电视上开 `8686` 端口的明文 HTTP，**只在局域网内可达**，首次访问要输电视屏幕上的 6 位配对码；输错 5 次会自动换码，配对成功后这台浏览器记住一年 |
+| Home Assistant 令牌 | 存在电视本地配置里（未加密），不会上传到任何地方；电视被他人物理接触时可能被读走 |
+| 内网地址 | 电视、Mac mini、设备桥的地址都只保存在电视上，不会上报 |
+| 不要公开的内容 | 提 issue 或分享截图时，请遮掉令牌、电视 IP、配对码和房间里的设备清单 |
+
+## 权限说明
+
+| 权限 | 用来做什么 |
+|------|-----------|
+| `INTERNET` / `ACCESS_NETWORK_STATE` | 拉天气、家里设备状态；顶栏显示网络状态 |
+| `SYSTEM_ALERT_WINDOW` | 手机投屏时，电视停在其他应用里也能切到前台播放 |
+| `REQUEST_DELETE_PACKAGES` | 长按应用 → 卸载 |
+| `REORDER_TASKS` | 点图标时把后台里的应用原样切回前台，不重新启动 |
+| `DUMP` / `PACKAGE_USAGE_STATS` | 首页应用下面的「还在后台」小点。普通应用申请不到，靠安装时 adb 授予；没授权就不显示小点，不影响其他功能 |
+| 设为默认桌面 | 按 HOME 键直接回到这个桌面 |
+
 ## 目录
 
 | 路径 | 内容 |
@@ -101,3 +125,7 @@ adb connect <电视IP>:5555      # 电视先开「开发者选项 → 网络调�
 ## 下一步可做
 
 - 打印机控制（暂停 / 继续 / 取消），需要给 PrintPilot 后端加下发通道
+
+## 许可证
+
+[Apache License 2.0](LICENSE)。第三方组件、图标和图片的许可见 [THIRD-PARTY.md](THIRD-PARTY.md)。
